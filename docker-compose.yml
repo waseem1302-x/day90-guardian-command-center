@@ -1,0 +1,86 @@
+# docker-compose.yml
+# AutoPilot Template — Docker Compose for local development
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-app_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-app_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./app:/app/app
+      - ./utils:/app/utils
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+      - "C:/Users/kaout/Downloads/Round 2/Round 2/dataset-20260801T093229Z-1-001/dataset/csv:/app/day90_dataset:ro"
+      - document_storage:/app/document_storage
+    ports:
+      - "127.0.0.1:8001:8000"
+    environment:
+      # Shared deployments default to production; local .env explicitly sets development.
+      - APP_ENV=${APP_ENV:-production}
+      # Authentication is fail-closed by default. Set AUTH_BYPASS=true only in a local .env.
+      - AUTH_BYPASS=${AUTH_BYPASS:-false}
+      - DAY90_DATASET_DIR=/app/day90_dataset
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: prod
+      args:
+        - NEXTAUTH_URL=${NEXTAUTH_URL}
+        - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+        - NEXT_PUBLIC_BASE_PATH=${NEXT_PUBLIC_BASE_PATH:-}
+    ports:
+      - "127.0.0.1:3001:3000"
+    environment:
+      - NODE_ENV=production
+    env_file:
+      - .env
+    depends_on:
+      - backend
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  postgres_data:
+  document_storage:
+
+networks:
+  app-network:
+    driver: bridge

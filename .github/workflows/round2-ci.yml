@@ -1,0 +1,44 @@
+name: Round 2 verification
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    env:
+      APP_ENV: test
+      AUTH_BYPASS: "true"
+      DATABASE_URL: sqlite:///./ci.db
+      DAY90_DATASET_DIR: ./docs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend dependencies
+        run: python -m pip install -r packages/requirements.txt
+      - name: Compile Python sources
+        run: python -m compileall -q app tests
+      - name: Run backend tests
+        run: pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      NEXT_PUBLIC_API_URL: http://localhost:8001
+      NEXTAUTH_URL: http://localhost:3001
+      NEXTAUTH_SECRET: ci-only-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
