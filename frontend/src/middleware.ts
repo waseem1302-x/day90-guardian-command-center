@@ -1,17 +1,30 @@
-// frontend/src/middleware.ts
-// AutoPilot Template — No auth middleware needed in dev mode.
-// All requests pass through. Auth is handled by AUTH_BYPASS on the backend.
+import { getToken } from 'next-auth/jwt'
+import { NextRequest, NextResponse } from 'next/server'
 
-import { NextResponse } from 'next/server'
+export async function middleware(request: NextRequest) {
+  // Local Docker retains its credential-free development flow. Hosted demos
+  // explicitly enable this password gate with environment variables.
+  if (process.env.DEMO_AUTH_REQUIRED !== 'true') return NextResponse.next()
 
-export function middleware() {
-  // Pass everything through — no authentication required
-  return NextResponse.next()
+  if (!process.env.DEMO_ACCESS_PASSWORD || !process.env.NEXTAUTH_SECRET) {
+    return new NextResponse('Hosted demo authentication is not configured.', { status: 503 })
+  }
+
+  const { pathname } = request.nextUrl
+  if (pathname.startsWith('/auth/signin') || pathname.startsWith('/api/auth')) {
+    return NextResponse.next()
+  }
+
+  const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET })
+  if (token) return NextResponse.next()
+
+  const signInUrl = new URL('/auth/signin', request.url)
+  signInUrl.searchParams.set('callbackUrl', request.nextUrl.pathname + request.nextUrl.search)
+  return NextResponse.redirect(signInUrl)
 }
 
 export const config = {
   matcher: [
-    // Only match app routes (skip static files, images, etc.)
     '/((?!_next/static|_next/image|favicon.ico|.*\\.svg|.*\\.png|.*\\.ico).*)',
   ],
 }

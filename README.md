@@ -199,6 +199,12 @@ DAY90_DATASET_DIR=/app/day90_dataset
 
 - Keep `AUTH_BYPASS=false` for staging and production. The backend also refuses
   to activate the bypass when `APP_ENV=staging` or `APP_ENV=production`.
+- A Vercel deployment uses two projects: the FastAPI backend from repository
+  root and the Next.js frontend from `frontend`. Configure a shared
+  `INTERNAL_SERVICE_TOKEN` on both projects; the frontend proxy keeps it out
+  of browser code. Before sharing the hosted demo, enable
+  `DEMO_AUTH_REQUIRED=true` and set `DEMO_ACCESS_PASSWORD` and
+  `NEXTAUTH_SECRET` on the frontend project.
 - Compose defaults `APP_ENV` to `production`; local development must opt in with
   `APP_ENV=development` and `AUTH_BYPASS=true` in the untracked `.env` file.
 - Store integration secrets only in the deployment secret manager. The

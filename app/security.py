@@ -1,4 +1,5 @@
 # app/security.py
+import hmac
 import json
 import logging
 import os
@@ -28,6 +29,7 @@ AUTH_BYPASS_REQUESTED = os.getenv("AUTH_BYPASS", "false").lower() == "true"
 # Never allow the development bypass to become active in a shared deployment,
 # even if an inherited environment file accidentally carries AUTH_BYPASS=true.
 AUTH_BYPASS = AUTH_BYPASS_REQUESTED and APP_ENV not in {"production", "staging"}
+INTERNAL_SERVICE_TOKEN = os.getenv("INTERNAL_SERVICE_TOKEN")
 
 # Dev-mode auth bypass user (returned when AUTH_BYPASS=true)
 _BYPASS_USER = {
@@ -35,6 +37,17 @@ _BYPASS_USER = {
     "email": "developer@autopilot.local",
     "name": "Dev User",
     "preferred_username": "dev-user",
+    "realm_access": {"roles": ["admin", "user"]},
+    "active": True,
+}
+
+# This identity is used only by the authenticated frontend proxy in a hosted
+# deployment. Its bearer token remains in server-side environment variables.
+_INTERNAL_SERVICE_USER = {
+    "sub": "day90-frontend-proxy",
+    "email": "service@day90-guardian.internal",
+    "name": "Day90 Guardian Frontend Proxy",
+    "preferred_username": "day90-frontend-proxy",
     "realm_access": {"roles": ["admin", "user"]},
     "active": True,
 }
@@ -128,6 +141,9 @@ def get_current_user(token: str | None = Depends(oauth2_scheme)) -> dict | None:
         if AUTH_BYPASS:
             return _BYPASS_USER
         return None
+
+    if INTERNAL_SERVICE_TOKEN and hmac.compare_digest(token, INTERNAL_SERVICE_TOKEN):
+        return _INTERNAL_SERVICE_USER
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",

@@ -5,13 +5,18 @@
 import NextAuth, { AuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
 
+const demoPassword = process.env.DEMO_ACCESS_PASSWORD
+
 const authOptions: AuthOptions = {
   providers: [
     CredentialsProvider({
       id: 'autopilot-dev',
-      name: 'AutoPilot Dev',
-      credentials: {},
-      async authorize() {
+      name: 'Day90 Guardian',
+      credentials: {
+        password: { label: 'Demo access password', type: 'password' },
+      },
+      async authorize(credentials) {
+        if (demoPassword && credentials?.password !== demoPassword) return null
         // Auto-authenticate as Dev User — no real credentials needed
         return {
           id: 'dev-user-001',
