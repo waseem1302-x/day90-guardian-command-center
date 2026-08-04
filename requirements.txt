@@ -1,1 +1,15 @@
--r packages/requirements.txt
+# Runtime dependencies for the Vercel FastAPI function.
+# Vercel's Python builder does not resolve nested requirements files.
+fastapi
+uvicorn
+python-jose[cryptography]
+requests
+httpx
+python-multipart
+email-validator
+openpyxl
+cryptography>=44,<47
+python-json-logger
+sqlalchemy
+psycopg2-binary
+alembic
