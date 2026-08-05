@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { motion } from 'framer-motion'
 import { apiClient } from '@/lib/api-client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -72,7 +71,7 @@ export default function AIInsightsPage() {
   }
 
   return (
-    <motion.div className='space-y-6' initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+    <div className='space-y-6'>
       <div className='flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between'>
         <div>
           <p className='text-sm font-semibold uppercase tracking-wide text-brand-cornflower'>Computed from processed HR data</p>
@@ -176,6 +175,6 @@ export default function AIInsightsPage() {
           </Card>
         </div>
       </div>
-    </motion.div>
+    </div>
   )
 }

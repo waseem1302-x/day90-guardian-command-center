@@ -10,6 +10,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog'
 interface CommandPaletteProps {
   open?: boolean
   onOpenChange?: (open: boolean) => void
+  registerShortcut?: boolean
 }
 
 // Recent items (would come from localStorage/state in real app)
@@ -113,7 +114,7 @@ function useDebounce<T>(value: T, delay: number): T {
   return debouncedValue
 }
 
-export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
+export function CommandPalette({ open, onOpenChange, registerShortcut = true }: CommandPaletteProps) {
   const [isOpen, setIsOpen] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const debouncedSearch = useDebounce(search, 150)
@@ -125,6 +126,8 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
   // Keyboard shortcut handler
   React.useEffect(() => {
+    if (!registerShortcut) return
+
     const down = (e: KeyboardEvent) => {
       // Cmd+K or Ctrl+K to toggle
       if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
@@ -135,7 +138,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
     document.addEventListener('keydown', down)
     return () => document.removeEventListener('keydown', down)
-  }, [controlledOpen, setControlledOpen])
+  }, [controlledOpen, registerShortcut, setControlledOpen])
 
   // Focus input when opened and clear search when closed
   React.useEffect(() => {

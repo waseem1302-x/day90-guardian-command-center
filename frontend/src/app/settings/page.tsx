@@ -1,7 +1,6 @@
 ﻿'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { motion } from 'framer-motion'
 import { apiClient } from '@/lib/api-client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Icons } from '@/components/ui/icons'
@@ -120,7 +119,7 @@ export default function SettingsPage() {
     : []
 
   return (
-    <motion.div className='mx-auto w-full max-w-[1440px] overflow-x-hidden space-y-4' initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+    <div className='mx-auto w-full max-w-[1440px] overflow-x-hidden space-y-4'>
       <section className='rounded-3xl border border-brand-cornflower/20 bg-gradient-to-br from-white via-white to-brand-cornflower/10 p-5 shadow-soft'>
         <div className='max-w-4xl'>
           <div className='flex flex-wrap items-center gap-2'>
@@ -265,7 +264,7 @@ export default function SettingsPage() {
           ))}
         </CardContent>
       </Card>
-    </motion.div>
+    </div>
   )
 }
 

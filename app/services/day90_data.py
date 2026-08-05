@@ -18,6 +18,19 @@ SUPABASE_LOAD_ID = os.getenv("DAY90_SUPABASE_LOAD_ID", "R2-20260803")
 PROFILE_CACHE_TTL_SECONDS = int(os.getenv("DAY90_PROFILE_CACHE_TTL_SECONDS", "3600"))
 _PROFILE_CACHE: dict | None = None
 _PROFILE_CACHE_EXPIRES_AT = 0.0
+SOURCE_FILES = [
+    "Workers.csv",
+    "Onboarding_Tasks.csv",
+    "Provisioning_Integration.csv",
+    "Peakon_Engagement.csv",
+    "Compliance_Items.csv",
+    "Payroll_Records.csv",
+    "Learning_Milestones.csv",
+    "Cross_Team_Dependencies.csv",
+    "Manager_Directory.csv",
+    "Locations_Entities.csv",
+    "Attrition_History.csv",
+]
 
 
 def _read_csv(name: str) -> list[dict[str, str]]:
@@ -84,6 +97,65 @@ def _read_source(name: str) -> tuple[list[dict[str, str]], str]:
     return _read_csv(name), "csv_mount"
 
 
+def _read_supabase_sources(names: list[str]) -> dict[str, list[dict[str, str]]] | None:
+    if not _supabase_configured():
+        return None
+
+    url = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    table_names = [name.removesuffix(".csv") for name in names]
+    endpoint = f"{url}/rest/v1/{SUPABASE_RECORDS_TABLE}"
+    params = {
+        "load_id": f"eq.{SUPABASE_LOAD_ID}",
+        "source_table": f"in.({','.join(table_names)})",
+        "select": "source_table,payload",
+    }
+    headers = {
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+    }
+
+    try:
+        grouped: dict[str, list[dict[str, str]]] = {name: [] for name in names}
+        offset = 0
+        page_size = int(os.getenv("DAY90_SUPABASE_PAGE_SIZE", "10000"))
+        while True:
+            response = httpx.get(
+                endpoint,
+                params={**params, "limit": str(page_size), "offset": str(offset)},
+                headers=headers,
+                timeout=12,
+            )
+            response.raise_for_status()
+            page = response.json()
+            for row in page:
+                source_table = row.get("source_table")
+                file_name = f"{source_table}.csv" if source_table else ""
+                if file_name in grouped:
+                    grouped[file_name].append(row.get("payload") or {})
+            if len(page) < page_size:
+                break
+            offset += page_size
+    except Exception:
+        return None
+
+    return grouped if any(grouped.values()) else None
+
+
+def _read_sources(names: list[str]) -> dict[str, tuple[list[dict[str, str]], str]]:
+    supabase_sources = _read_supabase_sources(names)
+    if supabase_sources:
+        return {
+            name: (
+                supabase_sources.get(name) or _read_csv(name),
+                "supabase" if supabase_sources.get(name) else "csv_mount",
+            )
+            for name in names
+        }
+
+    return {name: (_read_csv(name), "csv_mount") for name in names}
+
+
 def _parse_date(value: str | None) -> date | None:
     value = (value or "").strip()
     if not value:
@@ -115,17 +187,18 @@ def dataset_available() -> bool:
 
 
 def _compute_day90_profile_uncached() -> dict:
-    workers, workers_source = _read_source("Workers.csv")
-    tasks, tasks_source = _read_source("Onboarding_Tasks.csv")
-    provisioning, provisioning_source = _read_source("Provisioning_Integration.csv")
-    engagement, engagement_source = _read_source("Peakon_Engagement.csv")
-    compliance, compliance_source = _read_source("Compliance_Items.csv")
-    payroll, payroll_source = _read_source("Payroll_Records.csv")
-    learning, learning_source = _read_source("Learning_Milestones.csv")
-    dependencies, dependencies_source = _read_source("Cross_Team_Dependencies.csv")
-    managers, managers_source = _read_source("Manager_Directory.csv")
-    locations, locations_source = _read_source("Locations_Entities.csv")
-    attrition, attrition_source = _read_source("Attrition_History.csv")
+    sources = _read_sources(SOURCE_FILES)
+    workers, workers_source = sources["Workers.csv"]
+    tasks, tasks_source = sources["Onboarding_Tasks.csv"]
+    provisioning, provisioning_source = sources["Provisioning_Integration.csv"]
+    engagement, engagement_source = sources["Peakon_Engagement.csv"]
+    compliance, compliance_source = sources["Compliance_Items.csv"]
+    payroll, payroll_source = sources["Payroll_Records.csv"]
+    learning, learning_source = sources["Learning_Milestones.csv"]
+    dependencies, dependencies_source = sources["Cross_Team_Dependencies.csv"]
+    managers, managers_source = sources["Manager_Directory.csv"]
+    locations, locations_source = sources["Locations_Entities.csv"]
+    attrition, attrition_source = sources["Attrition_History.csv"]
     source_map = {
         "Workers": workers_source,
         "Onboarding_Tasks": tasks_source,

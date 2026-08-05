@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
 import { apiClient } from '@/lib/api-client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -118,7 +117,7 @@ export default function HomePage() {
     try {
       const result = await apiClient.post<{ message?: string }>('/api/day90/runs/trigger')
       setRunNotice(result.message ?? 'Guardian review staged. Open Workbench to approve a route-safe action.')
-      const refreshed = await apiClient.get<DashboardPayload>('/api/day90/dashboard')
+      const refreshed = await apiClient.get<DashboardPayload>('/api/day90/dashboard', { cache: 'no-store' })
       setData(refreshed)
     } catch (err) {
       setRunNotice(err instanceof Error ? err.message : 'Guardian review could not be staged')
@@ -143,7 +142,7 @@ export default function HomePage() {
   const latestTrigger = data.audit.find((event) => event.event === 'Manual trigger requested')
 
   return (
-    <motion.div className='mx-auto w-full max-w-[1440px] overflow-x-hidden space-y-4' initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+    <div className='mx-auto w-full max-w-[1440px] overflow-x-hidden space-y-4'>
       <section className='overflow-hidden rounded-3xl border border-brand-cornflower/20 bg-gradient-to-br from-white via-white to-brand-cornflower/10 p-5 shadow-soft'>
         <div className='flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between'>
           <div className='max-w-4xl'>
@@ -296,6 +295,6 @@ export default function HomePage() {
           ))}
         </CardContent>
       </Card>
-    </motion.div>
+    </div>
   )
 }

@@ -1,46 +1,83 @@
-import { getSession } from 'next-auth/react'
-
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || ''
+const GET_CACHE_TTL_MS = 30_000
+
+const getCache = new Map<string, { expiresAt: number; promise: Promise<unknown> }>()
+
+function normalizeBasePath(path: string) {
+  if (!path || path === '/') return ''
+  return path.startsWith('/') ? path : `/${path}`
+}
+
+function isLocalBrowser() {
+  if (typeof window === 'undefined') return false
+  return ['localhost', '127.0.0.1'].includes(window.location.hostname)
+}
+
+function shouldUseFrontendProxy(apiUrl: string) {
+  if (typeof window === 'undefined') return false
+  if (!apiUrl || apiUrl.startsWith('/')) return true
+  return !isLocalBrowser()
+}
+
+function buildApiUrl(endpoint: string) {
+  const basePath = normalizeBasePath(BASE_PATH)
+  const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`
+
+  if (shouldUseFrontendProxy(API_URL)) {
+    const proxyBase = (API_URL.startsWith('/') ? API_URL : `${basePath}/api/backend`).replace(/\/$/, '')
+    return `${proxyBase}${normalizedEndpoint}`
+  }
+
+  return `${API_URL.replace(/\/$/, '')}${basePath}${normalizedEndpoint}`
+}
 
 /**
- * A robust API client that handles authentication and base path resolution.
- * @param endpoint The API endpoint to call, e.g., '/api/test' or '/api/admin/dashboard'.
+ * A robust API client that handles backend URL resolution and short-lived GET reuse.
+ * @param endpoint The API endpoint to call, e.g. '/api/test' or '/api/day90/dashboard'.
  *                 The endpoint should include the '/api' prefix.
  * @param options Standard fetch options (method, body, etc.).
  */
 async function apiClientFetch<T = unknown>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const session = await getSession()
-
   const headers = new Headers(options.headers || {})
+  const method = options.method ?? 'GET'
+  const fullUrl = buildApiUrl(endpoint)
+  const canUseMemoryCache = method === 'GET' && options.cache !== 'no-store'
 
-  if (session?.accessToken) {
-    headers.set('Authorization', `Bearer ${session.accessToken}`)
+  if (canUseMemoryCache) {
+    const cached = getCache.get(fullUrl)
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.promise as Promise<T>
+    }
   }
 
-  // Construct the full URL: http://localhost:8001/app1/api/test
-  const fullUrl = `${API_URL}${BASE_PATH}${endpoint}`
+  const request = fetch(fullUrl, { ...options, headers }).then(async (response) => {
+    if (response.status === 401) {
+      console.warn('[API] 401 Unauthorized - check backend auth/proxy settings')
+    }
 
-  const response = await fetch(fullUrl, { ...options, headers })
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({
+        detail: response.statusText,
+      }))
+      throw new Error(errorData.detail || 'An API error occurred.')
+    }
 
-  // If the backend returns a 401, log it but don't force redirect in dev mode
-  if (response.status === 401) {
-    console.warn('[API] 401 Unauthorized — check backend AUTH_BYPASS setting')
+    if (response.status === 204) {
+      return null as T
+    }
+
+    return response.json() as Promise<T>
+  })
+
+  if (canUseMemoryCache) {
+    getCache.set(fullUrl, { expiresAt: Date.now() + GET_CACHE_TTL_MS, promise: request })
+    request.catch(() => getCache.delete(fullUrl))
+  } else if (method !== 'GET') {
+    getCache.clear()
   }
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({
-      detail: response.statusText,
-    }))
-    throw new Error(errorData.detail || 'An API error occurred.')
-  }
-
-  // Handle responses with no content
-  if (response.status === 204) {
-    return null as T
-  }
-
-  return response.json() as Promise<T>
+  return request
 }
 
 /**
@@ -107,5 +144,4 @@ export const apiClient = {
   },
 }
 
-// Default export for backward compatibility
 export default apiClientFetch
