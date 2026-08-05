@@ -126,8 +126,8 @@ Secrets are stored in `.env` and must not be committed. Use `.env.example` as th
 
 The hosted UI is intentionally protected with a demo access password because the
 Workbench can create real Slack and Asana review artifacts after a human
-approval. Share the demo password with judges through the submission form or an
-approved private channel; do not commit it to this repository.
+approval. Share the demo password only through an approved private channel; do
+not commit it to this repository.
 
 ## Local run
 
@@ -259,18 +259,20 @@ DAY90_PROFILE_CACHE_TTL_SECONDS=3600
 
 This keeps the local demo responsive while avoiding repeated full Supabase reads on every page navigation.
 
-## Demo flow for judges
+## Live operating flow
 
-1. Open the Dashboard and show live source, connected systems, operator flow, route counts, and audit trail.
-2. Open Data Manager and show where the records come from, which tables are used, and what signals were computed.
-3. Open Workbench and show Amber, Red, Confidential, and Data Quality cases.
-4. Explain that confidential cases are masked and restricted.
+1. Open the Dashboard and review the live source, connected systems, operator flow, route counts, and audit trail.
+2. Open Data Manager to inspect source lineage, operational table coverage, and computed signals.
+3. Open Workbench and triage Amber, Red, Confidential, and Data Quality cases.
+4. Confirm that confidential cases remain masked and restricted.
 5. Trigger a Guardian Review.
-6. Approve the Amber case and show the resulting audit entry plus Slack/Asana external proof; verify Red is restricted to Asana and Confidential/Data Quality remain internal gates.
-7. Open AI Policies and explain that routing is governed by editable policy rules.
-8. Open AI Insights and show generated bottlenecks/recommendations.
+6. Approve an Amber case when a route-safe nudge is appropriate; the system records the audit entry and creates the approved Slack/Asana artifacts.
+7. Use AI Policies to adjust governed routing thresholds while keeping confidential routing fail-closed.
+8. Use AI Insights to review bottlenecks, recommendations, and operational risk patterns.
 
-The proof should be a live, end-to-end run rather than a feature tour: show the source, the parallel specialist work, the policy decision, the human gate, and the resulting masked action receipt.
+The operating model is an end-to-end control loop: source records, specialist
+operator checks, policy decision, human gate, masked action receipt, and audit
+trail.
 
 For a pre-submission evidence checklist, see
 [`docs/round2-acceptance-checklist.md`](docs/round2-acceptance-checklist.md).

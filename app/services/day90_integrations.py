@@ -62,13 +62,13 @@ def integration_registry(source: dict) -> list[dict]:
         {
             "name": "Supabase",
             "category": "system of record",
-            "proof_role": "judged_live_integration",
+            "proof_role": "primary_operational_integration",
             "counts_as_live": True,
             "status": "ready" if supabase_ready else "needs_api_key",
             "detail": (
                 "Configured as final live data source."
                 if supabase_ready
-                else "Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY for final live proof. CSV fallback remains active for local dev."
+                else "Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY for the live source of record. CSV fallback remains active for local recovery."
             ),
             "configured": supabase_ready,
             "safe_config": {
@@ -79,17 +79,17 @@ def integration_registry(source: dict) -> list[dict]:
         {
             "name": "Round 2 CSV Mount",
             "category": "source data fallback",
-            "proof_role": "controlled_fallback_not_judged_live",
+            "proof_role": "resilience_fallback",
             "counts_as_live": False,
             "status": "ready" if source.get("available") else "missing",
-            "detail": f"Controlled fallback only; not counted as a judged live integration. {source.get('path')} as of {source.get('as_of_date')}",
+            "detail": f"Resilience fallback for local recovery and source validation. {source.get('path')} as of {source.get('as_of_date')}",
             "configured": bool(source.get("available")),
             "safe_config": {"DAY90_DATASET_DIR": source.get("path")},
         },
         {
             "name": "Supervity Auto",
             "category": "orchestration",
-            "proof_role": "judged_live_integration",
+            "proof_role": "primary_operational_integration",
             "counts_as_live": True,
             "status": "ready" if supervity_ready else "needs_api_key",
             "detail": (
@@ -106,7 +106,7 @@ def integration_registry(source: dict) -> list[dict]:
         {
             "name": "Slack",
             "category": "channel",
-            "proof_role": "judged_live_integration",
+            "proof_role": "primary_operational_integration",
             "counts_as_live": True,
             "status": "ready" if slack_ready else "needs_api_key",
             "detail": (
@@ -123,7 +123,7 @@ def integration_registry(source: dict) -> list[dict]:
         {
             "name": "Asana",
             "category": "work system",
-            "proof_role": "judged_live_integration",
+            "proof_role": "primary_operational_integration",
             "counts_as_live": True,
             "status": "ready" if asana_ready else "needs_api_key",
             "detail": (
@@ -157,7 +157,7 @@ def live_integration_summary(registry: list[dict]) -> dict:
         "fallback_names": [item["name"] for item in fallback_items],
         "live_categories": categories,
         "meets_round2_minimum": len(ready_live) >= 3 and "channel" in categories and "system of record" in categories,
-        "judge_note": "CSV is retained as a controlled fallback and is not counted toward the judged live integration total.",
+        "operational_note": "CSV is retained as a resilience fallback; primary operations run through Supabase, Supervity Auto, Slack, and Asana.",
     }
 
 

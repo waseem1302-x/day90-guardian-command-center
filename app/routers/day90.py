@@ -508,7 +508,7 @@ def _dataset_coverage(profile: dict) -> dict:
         },
         "domains": domain_summaries,
         "tables": tables,
-        "judge_note": (
+        "coverage_note": (
             "Round 2 coverage spans workers, onboarding tasks, provisioning/access, engagement, managers, "
             "locations/entities, compliance, payroll, learning, attrition history, and cross-team dependencies."
         ),

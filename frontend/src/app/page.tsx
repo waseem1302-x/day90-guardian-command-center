@@ -61,7 +61,7 @@ type IntegrationSummary = {
   fallback_names: string[]
   live_categories: string[]
   meets_round2_minimum: boolean
-  judge_note: string
+  operational_note: string
 }
 
 type AuditEvent = {
@@ -114,7 +114,7 @@ const routeStyles: Record<string, string> = {
 
 function integrationDisplayDetail(integration: Integration) {
   if (!integration.counts_as_live || integration.category === 'source data fallback') {
-    return 'Controlled fallback dataset ready; excluded from the judged live integration count.'
+    return 'Resilience fallback ready for local recovery and source validation.'
   }
   return integration.detail
 }
@@ -231,7 +231,7 @@ export default function HomePage() {
           <CardContent className='p-4'>
             <p className='text-xs font-semibold uppercase tracking-wide text-blue-700'>Connected systems</p>
             <p className='mt-1 text-xl font-bold text-blue-950'>{liveReadyCount}/{liveTotalCount} live</p>
-            <p className='mt-1 text-xs leading-5 text-blue-800'>Judged live systems: Supabase, Supervity Auto, Slack, and Asana. CSV is fallback only.</p>
+            <p className='mt-1 text-xs leading-5 text-blue-800'>Primary systems connect source records, orchestration, notifications, and reviewer tasks. CSV remains a resilience fallback.</p>
           </CardContent>
         </Card>
 
@@ -267,7 +267,7 @@ export default function HomePage() {
         </CardHeader>
         <CardContent className='space-y-3'>
           <div className='rounded-2xl border border-sky-100 bg-white/80 p-4'>
-            <p className='text-sm font-semibold text-brand-navy'>Judge-safe impact claim</p>
+            <p className='text-sm font-semibold text-brand-navy'>Operational impact measurement</p>
             <p className='mt-1 text-sm leading-6 text-muted-foreground'>
               {data.outcomes?.measurement_note ?? 'Measured as leading operational controls; no proven retention lift is claimed.'}
             </p>
@@ -348,7 +348,7 @@ export default function HomePage() {
                     </span>
                   </div>
                   <p className={cn('mt-2 w-fit rounded-full px-2 py-1 text-[11px] font-semibold', integration.counts_as_live ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700')}>
-                    {integration.counts_as_live ? 'Judge-counted live' : 'Fallback only'}
+                    {integration.counts_as_live ? 'Primary system' : 'Resilience fallback'}
                   </p>
                   <p className='mt-2 text-xs leading-5 text-muted-foreground' title={integration.detail}>
                     {integrationDisplayDetail(integration)}

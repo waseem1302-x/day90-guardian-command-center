@@ -83,6 +83,8 @@ async def test_live_integration_summary_excludes_csv_fallback(monkeypatch):
     assert csv_fallback["counts_as_live"] is False
     assert csv_fallback["name"] not in summary["live_names"]
     assert summary["meets_round2_minimum"] is True
+    assert "operational_note" in summary
+    assert "judge_note" not in summary
 
 
 def _fake_day90_ai_context():
@@ -110,8 +112,10 @@ def _fake_day90_ai_context():
             "public_text_leakage": 0,
             "retention_lift_claimed": False,
         },
-        "integrations_ready": 5,
-        "integrations_total": 5,
+        "integrations_ready": 4,
+        "integrations_total": 4,
+        "fallbacks_ready": 1,
+        "fallbacks_total": 1,
         "source": {"kind": "supabase", "as_of_date": "2026-08-03"},
         "workbench_cases": [
             {"employee_id": "EMP7005", "route": "CONFIDENTIAL", "status": "restricted_review"},
@@ -132,9 +136,9 @@ def _fake_day90_ai_context():
 async def test_ai_manager_answers_from_live_day90_context(monkeypatch):
     monkeypatch.setattr(ai, "_safe_day90_context", _fake_day90_ai_context)
 
-    result = ai.chat(ai.ChatRequest(message="What should I show judges?", context={"page": "/"}))
+    result = ai.chat(ai.ChatRequest(message="What should I show in the operating flow?", context={"page": "/"}))
 
-    assert "5/5" in result["response"]
+    assert "4/4" in result["response"]
     assert "GREEN 66" in result["response"]
     assert "EMP7005" in result["response"]
     assert result["tool_calls"][0]["name"] == "prepare_demo_path"
@@ -160,6 +164,7 @@ async def test_ai_manager_reports_measured_outcomes_without_attrition_lift(monke
     assert "leading operational controls" in result["response"]
     assert "84" in result["response"]
     assert "does **not** claim proven retention lift" in result["response"]
+    assert "judge-safe" not in result["response"]
     assert result["tool_calls"][0]["name"] == "summarize_outcome_measurement"
     assert result["tool_calls"][0]["result"]["outcomes"]["retention_lift_claimed"] is False
 
@@ -388,6 +393,8 @@ async def test_dataset_coverage_explains_round2_source_breadth():
     assert coverage["total_operational_rows"] == 4921
     assert coverage["cohorts_covered"] == 17
     assert coverage["field_dictionary"]["included_in_source_workbook"] is True
+    assert "coverage_note" in coverage
+    assert "judge_note" not in coverage
     assert "cohorts" not in {table["key"] for table in coverage["tables"]}
     assert "Workers" in {table["table"] for table in coverage["tables"]}
     assert "Cross_Team_Dependencies" in {table["table"] for table in coverage["tables"]}

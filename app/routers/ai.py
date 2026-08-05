@@ -27,13 +27,19 @@ def _safe_day90_context() -> dict:
     routes = dashboard.get("routes", [])
     outcomes = dashboard.get("outcomes", {})
     integrations = dashboard.get("integrations", [])
+    integration_summary = dashboard.get("integration_summary", {})
     return {
         "available": True,
         "metrics": metrics,
         "routes": routes,
         "outcomes": outcomes,
-        "integrations_ready": sum(1 for item in integrations if item.get("status") == "ready"),
-        "integrations_total": len(integrations),
+        "integrations_ready": integration_summary.get(
+            "ready_live_integrations",
+            sum(1 for item in integrations if item.get("status") == "ready"),
+        ),
+        "integrations_total": integration_summary.get("total_live_integrations", len(integrations)),
+        "fallbacks_ready": integration_summary.get("ready_fallbacks", 0),
+        "fallbacks_total": integration_summary.get("total_fallbacks", 0),
         "source": dashboard.get("source", {}),
         "workbench_cases": cases,
         "routing_preview": policies.get("routing_preview", []),
@@ -85,6 +91,7 @@ def _tool_result(context: dict) -> dict:
         "route_counts": _route_counts(context),
         "outcomes": context.get("outcomes", {}),
         "integrations": f"{context.get('integrations_ready')}/{context.get('integrations_total')}",
+        "fallbacks": f"{context.get('fallbacks_ready')}/{context.get('fallbacks_total')}",
         "source": context.get("source", {}).get("kind"),
     }
 
@@ -131,7 +138,7 @@ def _contextual_response(message: str, page: str, context: dict) -> tuple[str, s
             f"- Governance coverage for routed review cases: **{outcomes.get('policy_gate_coverage_pct', 0)}%**\n"
             f"- Confidential public-text leakage: **{outcomes.get('public_text_leakage', 0)}**\n"
             f"- Workbench cases visible for human review: **{outcomes.get('workbench_cases_visible', metrics.get('workbench_cases', 0))}**\n\n"
-            "So the judge-safe claim is: Day90 Guardian detects and governs early risk in the current batch; it does **not** claim proven retention lift from this hackathon dataset.",
+            "The operational claim is: Day90 Guardian detects and governs early risk in the current batch; it does **not** claim proven retention lift from this dataset.",
             "summarize_outcome_measurement",
         )
 
@@ -147,21 +154,22 @@ def _contextual_response(message: str, page: str, context: dict) -> tuple[str, s
 
     if any(word in lower for word in ["integration", "asana", "slack", "supervity", "supabase", "source", "data"]):
         return (
-            "The connected-system proof is live and source-aware.\n\n"
+            "The connected-system layer is live and source-aware.\n\n"
             f"- Source: **{source.get('kind')}** / {source.get('as_of_date')}\n"
-            f"- Integrations ready: **{context.get('integrations_ready')}/{context.get('integrations_total')}**\n"
+            f"- Primary operational integrations ready: **{context.get('integrations_ready')}/{context.get('integrations_total')}**\n"
+            f"- Resilience fallback ready: **{context.get('fallbacks_ready')}/{context.get('fallbacks_total')}**\n"
             f"- Workers: **{metrics.get('workers')}**, provisioning events: **{metrics.get('provisioning_events')}**, policy evaluations: **{metrics.get('policy_evaluations')}**\n"
             "- Slack/Asana are still approval-gated; Supervity auto execution reports proof status without bypassing Workbench.",
             "summarize_connected_systems",
         )
 
-    if any(word in lower for word in ["trigger", "run", "demo", "judge", "proof"]):
+    if any(word in lower for word in ["trigger", "run", "demo", "proof", "workflow", "operating"]):
         return (
-            "For the judge demo, the strongest proof path is already visible from this Command Center.\n\n"
-            f"1. Show data source and **{context.get('integrations_ready')}/{context.get('integrations_total')}** integrations ready.\n"
+            "The strongest live operating path is already visible from this Command Center.\n\n"
+            f"1. Show the source of record and **{context.get('integrations_ready')}/{context.get('integrations_total')}** primary integrations ready.\n"
             f"2. Show route counts: **{route_line}**.\n"
             f"3. Open Workbench and show queued cases: {sample_cases}.\n"
-            "4. Run Guardian Review to prove the trigger creates an audit event while keeping external actions gated.\n"
+            "4. Run Guardian Review to create an audit event while keeping external actions gated.\n"
             "5. Approve only a safe Amber/Red case when you intentionally want Slack/Asana proof.",
             "prepare_demo_path",
         )
@@ -169,10 +177,10 @@ def _contextual_response(message: str, page: str, context: dict) -> tuple[str, s
     return (
         f"On `{page}`, I’m reading the live Day90 context.\n\n"
         f"- Source: **{source.get('kind')}**\n"
-        f"- Integrations: **{context.get('integrations_ready')}/{context.get('integrations_total')} ready**\n"
+        f"- Primary integrations: **{context.get('integrations_ready')}/{context.get('integrations_total')} ready**\n"
         f"- Route counts: **{route_line}**\n"
         f"- Workbench queue: **{metrics.get('workbench_cases', 0)} cases**\n\n"
-        "Ask me about policies, confidential routing, Workbench approvals, integrations, or the judge demo path and I’ll answer from these current signals.",
+        "Ask me about policies, confidential routing, Workbench approvals, integrations, or the live operating path and I’ll answer from these current signals.",
         "summarize_day90_context",
     )
 

@@ -25,7 +25,7 @@ type IntegrationSummary = {
   fallback_names: string[]
   live_categories: string[]
   meets_round2_minimum: boolean
-  judge_note: string
+  operational_note: string
 }
 
 type DashboardPayload = {
@@ -57,7 +57,7 @@ type DatasetCoverage = {
     rows: number
   }[]
   tables: CoverageTable[]
-  judge_note: string
+  coverage_note: string
 }
 
 type DataProfile = {
@@ -192,13 +192,13 @@ export default function SettingsPage() {
       <Card className='border-blue-200 bg-blue-50'>
         <CardContent className='grid gap-3 p-4 lg:grid-cols-[220px_1fr] lg:items-center'>
           <div>
-            <p className='text-xs font-semibold uppercase tracking-wide text-blue-700'>Round 2 integration proof</p>
-            <p className='mt-1 text-2xl font-bold text-blue-950'>{liveReadyCount}/{liveTotalCount} live integrations</p>
+            <p className='text-xs font-semibold uppercase tracking-wide text-blue-700'>Operational system coverage</p>
+            <p className='mt-1 text-2xl font-bold text-blue-950'>{liveReadyCount}/{liveTotalCount} primary systems</p>
           </div>
           <div className='text-sm leading-6 text-blue-900'>
-            <p>Judge-counted systems are Supabase, Supervity Auto, Slack, and Asana across system-of-record, orchestration, channel, and work-system categories.</p>
+            <p>Supabase, Supervity Auto, Slack, and Asana work together as the source of record, orchestration layer, notification channel, and review-task system.</p>
             <p className='mt-1 text-xs font-semibold text-blue-800'>
-              CSV fallback: {fallbackReadyCount}/{fallbackTotalCount} ready, retained only for controlled local recovery and not counted as a live integration.
+              CSV fallback: {fallbackReadyCount}/{fallbackTotalCount} ready, retained for controlled local recovery and source validation.
             </p>
           </div>
         </CardContent>
@@ -219,14 +219,14 @@ export default function SettingsPage() {
               <p className='mt-4 font-semibold leading-5 text-brand-navy'>{integration.name}</p>
               <p className='mt-1 text-xs uppercase tracking-wide text-muted-foreground'>{integration.category}</p>
               <p className={cn('mt-2 w-fit rounded-full px-2 py-1 text-[11px] font-semibold', integration.counts_as_live ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700')}>
-                {integration.counts_as_live ? 'Judge-counted live' : 'Fallback only'}
+                {integration.counts_as_live ? 'Primary system' : 'Resilience fallback'}
               </p>
               <p
                 className='mt-3 break-words text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere]'
                 title={integration.detail}
               >
                 {integration.category === 'source data fallback'
-                  ? 'Controlled fallback dataset configured; not counted as a judged live integration.'
+                  ? 'Resilience fallback configured for local recovery and source validation.'
                   : integration.detail}
               </p>
             </CardContent>
@@ -296,7 +296,7 @@ export default function SettingsPage() {
                 </p>
               </div>
             </div>
-            <p className='text-sm leading-6 text-emerald-900'>{profile.dataset_coverage.judge_note}</p>
+            <p className='text-sm leading-6 text-emerald-900'>{profile.dataset_coverage.coverage_note}</p>
             <div className='grid gap-3 lg:grid-cols-3'>
               {profile.dataset_coverage.domains.map((domain) => (
                 <div key={domain.name} className='rounded-xl border border-emerald-100 bg-white p-4'>
