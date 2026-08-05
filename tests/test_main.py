@@ -4,7 +4,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
-from app.routers import day90
+from app.routers import ai, day90
 from app.services import day90_integrations
 
 # Mark all tests in this file as async
@@ -61,6 +61,65 @@ async def test_integration_registry_never_returns_secret_fragments(monkeypatch):
     }
     assert all(value == "configured" for value in secrets.values())
     assert not any("secret" in value for value in secrets.values())
+
+
+def _fake_day90_ai_context():
+    return {
+        "available": True,
+        "metrics": {
+            "workers": 150,
+            "workbench_cases": 12,
+            "provisioning_events": 751,
+            "policy_evaluations": 119,
+            "confidential_cases": 4,
+        },
+        "routes": [
+            {"route": "GREEN", "count": 66, "description": "Safe cohort progress"},
+            {"route": "AMBER", "count": 13, "description": "Manager nudge"},
+            {"route": "RED", "count": 66, "description": "Human approval"},
+            {"route": "CONFIDENTIAL", "count": 4, "description": "Restricted review"},
+            {"route": "DATA_QUALITY", "count": 1, "description": "Fix source data"},
+        ],
+        "integrations_ready": 5,
+        "integrations_total": 5,
+        "source": {"kind": "supabase", "as_of_date": "2026-08-03"},
+        "workbench_cases": [
+            {"employee_id": "EMP7005", "route": "CONFIDENTIAL", "status": "restricted_review"},
+            {"employee_id": "EMP7041", "route": "RED", "status": "pending_review"},
+        ],
+        "routing_preview": [],
+        "policies": [
+            {
+                "name": "Amber Manager Nudge",
+                "route": "AMBER",
+                "threshold": "35 <= risk_score < 85 AND confidential_flag = false",
+            }
+        ],
+        "audit_head": [],
+    }
+
+
+async def test_ai_manager_answers_from_live_day90_context(monkeypatch):
+    monkeypatch.setattr(ai, "_safe_day90_context", _fake_day90_ai_context)
+
+    result = ai.chat(ai.ChatRequest(message="What should I show judges?", context={"page": "/"}))
+
+    assert "5/5" in result["response"]
+    assert "GREEN 66" in result["response"]
+    assert "EMP7005" in result["response"]
+    assert result["tool_calls"][0]["name"] == "prepare_demo_path"
+    assert result["tool_calls"][0]["result"]["workers"] == 150
+
+
+async def test_ai_manager_explains_policy_impact_with_counts(monkeypatch):
+    monkeypatch.setattr(ai, "_safe_day90_context", _fake_day90_ai_context)
+
+    result = ai.chat(ai.ChatRequest(message="Do policy edits change routing?", context={"page": "/ai/policies"}))
+
+    assert "policy controls are connected" in result["response"]
+    assert "AMBER 13" in result["response"]
+    assert "Amber Manager Nudge" in result["response"]
+    assert result["tool_calls"][0]["name"] == "explain_policy_impact"
 
 
 async def test_route_aware_reviewer_actions(monkeypatch):

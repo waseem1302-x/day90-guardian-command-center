@@ -1,45 +1,171 @@
 from __future__ import annotations
 
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from app.routers import day90 as day90_router
 
 router = APIRouter(prefix="/ai", tags=["AI Manager"])
 
 
 class ChatRequest(BaseModel):
     message: str
-    history: list[dict] = []
-    context: dict = {}
+    history: list[dict] = Field(default_factory=list)
+    context: dict = Field(default_factory=dict)
+
+
+def _safe_day90_context() -> dict:
+    try:
+        dashboard = day90_router.dashboard_payload()
+        workbench = day90_router.get_workbench()
+        policies = day90_router.get_policies()
+    except Exception as exc:  # pragma: no cover - protects chat from data-source outages
+        return {"available": False, "error": str(exc)[:180]}
+
+    cases = workbench.get("cases", [])
+    metrics = dashboard.get("metrics", {})
+    routes = dashboard.get("routes", [])
+    integrations = dashboard.get("integrations", [])
+    return {
+        "available": True,
+        "metrics": metrics,
+        "routes": routes,
+        "integrations_ready": sum(1 for item in integrations if item.get("status") == "ready"),
+        "integrations_total": len(integrations),
+        "source": dashboard.get("source", {}),
+        "workbench_cases": cases,
+        "routing_preview": policies.get("routing_preview", []),
+        "policies": policies.get("policies", []),
+        "audit_head": dashboard.get("audit", [])[:3],
+    }
+
+
+def _route_counts(context: dict) -> dict:
+    return {item["route"]: item["count"] for item in context.get("routes", [])}
+
+
+def _format_route_counts(context: dict) -> str:
+    counts = _route_counts(context)
+    return ", ".join(
+        f"{route} {counts.get(route, 0)}"
+        for route in ["GREEN", "AMBER", "RED", "CONFIDENTIAL", "DATA_QUALITY"]
+    )
+
+
+def _sample_cases(context: dict, limit: int = 4) -> str:
+    cases = context.get("workbench_cases", [])[:limit]
+    if not cases:
+        return "No Workbench cases are currently queued."
+    return "; ".join(
+        f"{case.get('employee_id')} -> {case.get('route')} ({case.get('status')})"
+        for case in cases
+    )
+
+
+def _policy_summary(context: dict) -> str:
+    policies = context.get("policies", [])
+    if not policies:
+        return "No Day90 policies were returned."
+    return "; ".join(
+        f"{policy.get('name')}: {policy.get('route')} when `{policy.get('threshold')}`"
+        for policy in policies[:4]
+    )
+
+
+def _tool_result(context: dict) -> dict:
+    if not context.get("available"):
+        return {"status": "unavailable", "detail": context.get("error")}
+    metrics = context.get("metrics", {})
+    return {
+        "status": "ready",
+        "workers": metrics.get("workers"),
+        "workbench_cases": metrics.get("workbench_cases"),
+        "route_counts": _route_counts(context),
+        "integrations": f"{context.get('integrations_ready')}/{context.get('integrations_total')}",
+        "source": context.get("source", {}).get("kind"),
+    }
+
+
+def _contextual_response(message: str, page: str, context: dict) -> tuple[str, str]:
+    if not context.get("available"):
+        return (
+            "I could not load the live Day90 context for this answer, so I would not rely on AI Manager proof until the data endpoint is healthy.",
+            "read_day90_context",
+        )
+
+    metrics = context["metrics"]
+    source = context.get("source", {})
+    route_line = _format_route_counts(context)
+    sample_cases = _sample_cases(context)
+    lower = message.lower()
+
+    if any(word in lower for word in ["confidential", "privacy", "leak", "mask"]):
+        return (
+            "Confidential routing is active and fail-closed.\n\n"
+            f"- Current confidential cases: **{metrics.get('confidential_cases', 0)}**\n"
+            f"- Workbench proof: {sample_cases}\n"
+            "- Raw confidential pulse text is not loaded into the dashboard, Slack text, or public Asana descriptions.\n"
+            "- The confidential policy route is locked to `CONFIDENTIAL`, so a policy edit cannot accidentally turn it into an Amber/public action.",
+            "explain_confidential_gate",
+        )
+
+    if any(word in lower for word in ["policy", "threshold", "route", "routing", "gate"]):
+        return (
+            "The policy controls are connected to the next Day90 route evaluation.\n\n"
+            f"- Current routing preview: **{route_line}**\n"
+            f"- Active gates: {_policy_summary(context)}\n"
+            "- If a reviewer changes a non-confidential policy route or threshold, the routing preview and next Workbench queue update from the same evaluation path.\n"
+            "- Confidential disclosure isolation remains locked fail-closed for privacy.",
+            "explain_policy_impact",
+        )
+
+    if any(word in lower for word in ["workbench", "case", "approve", "review", "human"]):
+        return (
+            "The human gate is populated from the live Day90 profile, not a static slide.\n\n"
+            f"- Workbench cases queued: **{metrics.get('workbench_cases', 0)}**\n"
+            f"- Route mix: **{route_line}**\n"
+            f"- Sample queue: {sample_cases}\n"
+            "- Approval is the only path that can create route-safe Slack/Asana artifacts; trigger alone keeps `external_actions` empty.",
+            "summarize_workbench_queue",
+        )
+
+    if any(word in lower for word in ["integration", "asana", "slack", "supervity", "supabase", "source", "data"]):
+        return (
+            "The connected-system proof is live and source-aware.\n\n"
+            f"- Source: **{source.get('kind')}** / {source.get('as_of_date')}\n"
+            f"- Integrations ready: **{context.get('integrations_ready')}/{context.get('integrations_total')}**\n"
+            f"- Workers: **{metrics.get('workers')}**, provisioning events: **{metrics.get('provisioning_events')}**, policy evaluations: **{metrics.get('policy_evaluations')}**\n"
+            "- Slack/Asana are still approval-gated; Supervity auto execution reports proof status without bypassing Workbench.",
+            "summarize_connected_systems",
+        )
+
+    if any(word in lower for word in ["trigger", "run", "demo", "judge", "proof"]):
+        return (
+            "For the judge demo, the strongest proof path is already visible from this Command Center.\n\n"
+            f"1. Show data source and **{context.get('integrations_ready')}/{context.get('integrations_total')}** integrations ready.\n"
+            f"2. Show route counts: **{route_line}**.\n"
+            f"3. Open Workbench and show queued cases: {sample_cases}.\n"
+            "4. Run Guardian Review to prove the trigger creates an audit event while keeping external actions gated.\n"
+            "5. Approve only a safe Amber/Red case when you intentionally want Slack/Asana proof.",
+            "prepare_demo_path",
+        )
+
+    return (
+        f"On `{page}`, I’m reading the live Day90 context.\n\n"
+        f"- Source: **{source.get('kind')}**\n"
+        f"- Integrations: **{context.get('integrations_ready')}/{context.get('integrations_total')} ready**\n"
+        f"- Route counts: **{route_line}**\n"
+        f"- Workbench queue: **{metrics.get('workbench_cases', 0)} cases**\n\n"
+        "Ask me about policies, confidential routing, Workbench approvals, integrations, or the judge demo path and I’ll answer from these current signals.",
+        "summarize_day90_context",
+    )
 
 
 @router.post("/chat")
 def chat(request: ChatRequest):
-    message = request.message.lower()
     page = request.context.get("page", "the current page")
-
-    if "trigger" in message or "run" in message:
-        response = (
-            "I can prepare a Day90 Guardian run from the Command Center. "
-            "The current backend has captured the trigger path; live Supervity execution will be enabled after the Workflow API key is stored server-side."
-        )
-        tool_name = "prepare_day90_run"
-    elif "confidential" in message:
-        response = (
-            "Confidential cases are isolated from dashboards, Slack, and public Asana descriptions. "
-            "Only the restricted People Ops Workbench queue receives the masked case summary."
-        )
-        tool_name = "explain_confidential_gate"
-    elif "policy" in message:
-        response = (
-            "Day90 policies are business-editable gates. Changing a threshold or route affects the next evaluation and records an audit event."
-        )
-        tool_name = "explain_policy_gate"
-    else:
-        response = (
-            f"On {page}, I can help inspect Day90 risk routes, open Workbench cases, explain operator evidence, or prepare a controlled run. "
-            "The current proof surface is focused on onboarding, access, compliance, payroll, engagement, manager follow-up, and confidential routing."
-        )
-        tool_name = "summarize_day90_context"
+    context = _safe_day90_context()
+    response, tool_name = _contextual_response(request.message, page, context)
 
     return {
         "response": response,
@@ -48,7 +174,7 @@ def chat(request: ChatRequest):
                 "id": "day90-manager-001",
                 "name": tool_name,
                 "args": {"page": page},
-                "result": {"status": "ready"},
+                "result": _tool_result(context),
             }
         ],
     }
