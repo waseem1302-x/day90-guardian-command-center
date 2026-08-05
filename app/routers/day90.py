@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+from collections import Counter
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Literal
@@ -90,7 +92,7 @@ POLICIES = [
         "name": "Amber Manager Nudge",
         "description": "Low engagement, overdue manager follow-up, or blocked onboarding without confidential text creates Slack notice and Asana task.",
         "is_active": True,
-        "threshold": "55 <= risk_score < 85 AND confidential_flag = false",
+        "threshold": "35 <= risk_score < 85 AND confidential_flag = false",
         "route": "AMBER",
         "owner": "HR business partner",
         "last_evaluated_at": "2026-08-03T07:02:15+00:00",
@@ -233,8 +235,98 @@ class PolicyUpdateRequest(BaseModel):
     route: str | None = None
 
 
+ROUTES = {"GREEN", "AMBER", "RED", "CONFIDENTIAL", "DATA_QUALITY"}
+
+
+def _policy_by_id(policy_id: str) -> dict:
+    return next(policy for policy in POLICIES if policy["id"] == policy_id)
+
+
+def _policy_active(policy_id: str) -> bool:
+    return bool(_policy_by_id(policy_id).get("is_active", True))
+
+
+def _policy_route(policy_id: str, fallback: str) -> str:
+    route = str(_policy_by_id(policy_id).get("route") or fallback).upper()
+    return route if route in ROUTES else fallback
+
+
+def _policy_number(policy_id: str, field: str, operator: str, fallback: int) -> int:
+    threshold = str(_policy_by_id(policy_id).get("threshold") or "")
+    patterns = [
+        rf"{re.escape(field)}\s*{re.escape(operator)}\s*(\d+)",
+        rf"(\d+)\s*{re.escape(operator)}\s*{re.escape(field)}",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, threshold)
+        if match:
+            return int(match.group(1))
+    return fallback
+
+
+def _route_case_with_policies(case: dict) -> str:
+    signals = case.get("signals", {})
+    score = int(case.get("score") or 0)
+
+    # Privacy fails closed. Confidential text must never become an Amber/Slack
+    # style public route because of a no-code policy experiment.
+    if signals.get("confidential"):
+        return "CONFIDENTIAL"
+
+    if signals.get("missing_manager") and _policy_active("policy-data-quality-stop"):
+        return _policy_route("policy-data-quality-stop", "DATA_QUALITY")
+
+    red_floor = _policy_number(
+        "policy-red-compliance",
+        "severity_score",
+        ">=",
+        _policy_number("policy-red-compliance", "risk_score", ">=", 85),
+    )
+    if _policy_active("policy-red-compliance") and (
+        signals.get("pay_errors") or signals.get("comp_overdue") or score >= red_floor
+    ):
+        return _policy_route("policy-red-compliance", "RED")
+
+    amber_floor = _policy_number(
+        "policy-amber-manager-nudge",
+        "risk_score",
+        "<=",
+        _policy_number("policy-amber-manager-nudge", "risk_score", ">=", 55),
+    )
+    amber_ceiling = _policy_number("policy-amber-manager-nudge", "risk_score", "<", red_floor)
+    if _policy_active("policy-amber-manager-nudge") and amber_floor <= score < amber_ceiling:
+        return _policy_route("policy-amber-manager-nudge", "AMBER")
+
+    return "GREEN"
+
+
+def _apply_policy_routing(profile: dict) -> dict:
+    routed = deepcopy(profile)
+    route_counts: Counter[str] = Counter()
+    for case in routed.get("candidate_cases", []):
+        case["route"] = _route_case_with_policies(case)
+        route_counts[case["route"]] += 1
+
+    workers = routed.get("counts", {}).get("workers", 0)
+    non_green = sum(count for route, count in route_counts.items() if route != "GREEN")
+    routed["route_counts"] = {
+        "GREEN": max(workers - non_green, 0),
+        "AMBER": route_counts["AMBER"],
+        "RED": route_counts["RED"],
+        "CONFIDENTIAL": route_counts["CONFIDENTIAL"],
+        "DATA_QUALITY": route_counts["DATA_QUALITY"],
+    }
+    routed["policy_effect"] = {
+        "profile": "hr-default",
+        "version": 1,
+        "editable_routes_applied": True,
+        "confidential_route_locked": True,
+    }
+    return routed
+
+
 def _profile() -> dict:
-    return compute_day90_profile()
+    return _apply_policy_routing(compute_day90_profile())
 
 
 def _route_counts(profile: dict) -> list[dict]:
@@ -283,6 +375,8 @@ def _workbench_cases_from_profile(profile: dict) -> list[dict]:
     for case in profile["candidate_cases"]:
         if len(selected_cases) >= 12:
             break
+        if case["route"] == "GREEN":
+            continue
         if case["employee_id"] not in seen_employee_ids:
             selected_cases.append(case)
             seen_employee_ids.add(case["employee_id"])
@@ -477,7 +571,7 @@ def seed_supabase():
 
 @router.get("/policies")
 def get_policies():
-    return {"policies": deepcopy(POLICIES)}
+    return {"policies": deepcopy(POLICIES), "routing_preview": _route_counts(_profile())}
 
 
 @router.patch("/policies/{policy_id}")
@@ -489,7 +583,15 @@ def update_policy(policy_id: str, request: PolicyUpdateRequest):
             if request.threshold is not None:
                 policy["threshold"] = request.threshold
             if request.route is not None:
-                policy["route"] = request.route
+                route = request.route.upper()
+                if route not in ROUTES:
+                    raise HTTPException(status_code=400, detail="Unsupported Day90 route")
+                if policy_id == "policy-confidential-isolation" and route != "CONFIDENTIAL":
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Confidential disclosure policy is locked to the confidential route.",
+                    )
+                policy["route"] = route
             policy["last_evaluated_at"] = utc_now()
             policy["evaluations"] += 1
             AUDIT_TRAIL.insert(
@@ -501,7 +603,11 @@ def update_policy(policy_id: str, request: PolicyUpdateRequest):
                     "detail": f"{policy['name']} now routes to {policy['route']} with active={policy['is_active']}",
                 },
             )
-            return {"policy": deepcopy(policy), "audit": deepcopy(AUDIT_TRAIL[0])}
+            return {
+                "policy": deepcopy(policy),
+                "routing_preview": _route_counts(_profile()),
+                "audit": deepcopy(AUDIT_TRAIL[0]),
+            }
     raise HTTPException(status_code=404, detail="Policy not found")
 
 

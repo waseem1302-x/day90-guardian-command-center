@@ -178,6 +178,70 @@ async def test_manual_trigger_stages_actions_behind_workbench(monkeypatch):
         day90.AUDIT_TRAIL[:] = audit_before
 
 
+async def test_policy_route_edit_changes_next_routing_preview(monkeypatch):
+    """Editable policy routes must change the next route evaluation, not just the card text."""
+    profile = {
+        "source": {"available": True},
+        "counts": {"workers": 3},
+        "candidate_cases": [
+            {
+                "employee_id": "EMP9001",
+                "route": "RED",
+                "score": 90,
+                "signals": {"pay_errors": 0, "comp_overdue": 0, "confidential": 0, "missing_manager": 0},
+            },
+            {
+                "employee_id": "EMP9002",
+                "route": "AMBER",
+                "score": 60,
+                "signals": {"pay_errors": 0, "comp_overdue": 0, "confidential": 0, "missing_manager": 0},
+            },
+            {
+                "employee_id": "EMP9003",
+                "route": "DATA_QUALITY",
+                "score": 40,
+                "signals": {"pay_errors": 0, "comp_overdue": 0, "confidential": 0, "missing_manager": 1},
+            },
+        ],
+    }
+    policies_before = deepcopy(day90.POLICIES)
+    audit_before = deepcopy(day90.AUDIT_TRAIL)
+    monkeypatch.setattr(day90, "compute_day90_profile", lambda: deepcopy(profile))
+    try:
+        before_counts = {row["route"]: row["count"] for row in day90._route_counts(day90._profile())}
+        assert before_counts["RED"] == 1
+        assert before_counts["AMBER"] == 1
+        assert before_counts["DATA_QUALITY"] == 1
+
+        result = day90.update_policy(
+            "policy-amber-manager-nudge",
+            day90.PolicyUpdateRequest(route="RED"),
+        )
+        after_counts = {row["route"]: row["count"] for row in result["routing_preview"]}
+        workbench = day90.get_workbench()["cases"]
+
+        assert after_counts["RED"] == 2
+        assert after_counts["AMBER"] == 0
+        assert any(case["employee_id"] == "EMP9002" and case["route"] == "RED" for case in workbench)
+    finally:
+        day90.POLICIES[:] = policies_before
+        day90.AUDIT_TRAIL[:] = audit_before
+
+
+async def test_confidential_policy_route_is_locked():
+    """Confidential signals must remain fail-closed even when policy controls are editable."""
+    policies_before = deepcopy(day90.POLICIES)
+    try:
+        with pytest.raises(Exception) as exc_info:
+            day90.update_policy(
+                "policy-confidential-isolation",
+                day90.PolicyUpdateRequest(route="AMBER"),
+            )
+        assert getattr(exc_info.value, "status_code", None) == 400
+    finally:
+        day90.POLICIES[:] = policies_before
+
+
 async def test_manual_trigger_can_call_supervity_with_approval_gated_payload(monkeypatch):
     """When explicitly enabled, the backend calls Auto without bypassing Workbench approval."""
     monkeypatch.setenv("SUPERVITY_WORKFLOW_EXECUTE_URL", "https://workflow.example/execute")

@@ -19,14 +19,22 @@ type Day90Policy = {
   evaluations: number
 }
 
+type RoutePreview = {
+  route: string
+  count: number
+  description: string
+}
+
 export default function AIPoliciesPage() {
   const [policies, setPolicies] = useState<Day90Policy[]>([])
+  const [routingPreview, setRoutingPreview] = useState<RoutePreview[]>([])
   const [editing, setEditing] = useState<Record<string, string>>({})
   const [savingId, setSavingId] = useState<string | null>(null)
 
   const loadPolicies = async () => {
-    const payload = await apiClient.get<{ policies: Day90Policy[] }>('/api/day90/policies')
+    const payload = await apiClient.get<{ policies: Day90Policy[]; routing_preview: RoutePreview[] }>('/api/day90/policies')
     setPolicies(payload.policies)
+    setRoutingPreview(payload.routing_preview)
     setEditing(Object.fromEntries(payload.policies.map((policy) => [policy.id, policy.threshold])))
   }
 
@@ -37,12 +45,13 @@ export default function AIPoliciesPage() {
   const updatePolicy = async (policy: Day90Policy, changes: Partial<Day90Policy>) => {
     setSavingId(policy.id)
     try {
-      const payload = await apiClient.patch<{ policy: Day90Policy }>(`/api/day90/policies/${policy.id}`, {
+      const payload = await apiClient.patch<{ policy: Day90Policy; routing_preview: RoutePreview[] }>(`/api/day90/policies/${policy.id}`, {
         is_active: changes.is_active,
         threshold: changes.threshold,
         route: changes.route,
       })
       setPolicies((items) => items.map((item) => (item.id === policy.id ? payload.policy : item)))
+      setRoutingPreview(payload.routing_preview)
       setEditing((items) => ({ ...items, [policy.id]: payload.policy.threshold }))
     } finally {
       setSavingId(null)
@@ -58,6 +67,24 @@ export default function AIPoliciesPage() {
           These are the no-code controls that change how Day90 Guardian routes cases on the next run. Every save records an evaluation event in the audit trail.
         </p>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className='flex items-center gap-2'>
+            <Icons.activity className='h-5 w-5 text-brand-cornflower' />
+            Routing impact preview
+          </CardTitle>
+        </CardHeader>
+        <CardContent className='grid gap-2 sm:grid-cols-2 lg:grid-cols-5'>
+          {routingPreview.map((route) => (
+            <div key={route.route} className='rounded-xl border border-border bg-white p-3'>
+              <p className='text-xs font-semibold uppercase tracking-wide text-muted-foreground'>{route.route}</p>
+              <p className='mt-2 text-2xl font-bold text-brand-navy'>{route.count}</p>
+              <p className='mt-1 text-xs leading-5 text-muted-foreground'>{route.description}</p>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
       <div className='grid gap-4 lg:grid-cols-2'>
         {policies.map((policy) => (
@@ -82,8 +109,9 @@ export default function AIPoliciesPage() {
                   <p className='text-xs font-semibold uppercase tracking-wide text-muted-foreground'>Route</p>
                   <select
                     value={policy.route}
+                    disabled={policy.id === 'policy-confidential-isolation'}
                     onChange={(event) => updatePolicy(policy, { route: event.target.value })}
-                    className='mt-2 w-full rounded-md border border-input bg-white px-3 py-2 text-sm'
+                    className='mt-2 w-full rounded-md border border-input bg-white px-3 py-2 text-sm disabled:bg-slate-50 disabled:text-slate-500'
                   >
                     <option>GREEN</option>
                     <option>AMBER</option>
@@ -91,6 +119,9 @@ export default function AIPoliciesPage() {
                     <option>CONFIDENTIAL</option>
                     <option>DATA_QUALITY</option>
                   </select>
+                  {policy.id === 'policy-confidential-isolation' && (
+                    <p className='mt-2 text-xs leading-5 text-muted-foreground'>Locked fail-closed so confidential disclosures never become public actions.</p>
+                  )}
                 </div>
                 <div className='rounded-lg border border-border p-3'>
                   <p className='text-xs font-semibold uppercase tracking-wide text-muted-foreground'>Owner</p>
