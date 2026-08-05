@@ -115,7 +115,7 @@ Secrets are stored in `.env` and must not be committed. Use `.env.example` as th
 ## Hosted deployment
 
 - Public command center UI: <https://day90-guardian-command-center-ui.vercel.app/>
-- Public backend health check: <https://day90-guardian-api-git-main-waseem-mushtaqs-projects.vercel.app/api/health>
+- Public backend health check: <https://day90-guardian-command-center.vercel.app/api/health>
 - Vercel backend project: `day90-guardian-api`
 - Vercel frontend project: `day90-guardian-command-center-ui`
 
