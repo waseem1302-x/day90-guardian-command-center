@@ -112,6 +112,13 @@ const routeStyles: Record<string, string> = {
   DATA_QUALITY: 'border-cyan-200 bg-cyan-50 text-cyan-800',
 }
 
+function integrationDisplayDetail(integration: Integration) {
+  if (!integration.counts_as_live || integration.category === 'source data fallback') {
+    return 'Controlled fallback dataset ready; excluded from the judged live integration count.'
+  }
+  return integration.detail
+}
+
 function LoadingShell() {
   return (
     <div className='flex min-h-[50vh] items-center justify-center'>
@@ -332,7 +339,7 @@ export default function HomePage() {
               {data.integrations.map((integration) => (
                 <div key={integration.name} className='rounded-xl border border-border bg-white p-3'>
                   <div className='flex items-center justify-between gap-3'>
-                    <div>
+                    <div className='min-w-0'>
                       <p className='text-sm font-semibold text-brand-navy'>{integration.name}</p>
                       <p className='text-xs uppercase tracking-wide text-muted-foreground'>{integration.category}</p>
                     </div>
@@ -340,7 +347,12 @@ export default function HomePage() {
                       {integration.status.replaceAll('_', ' ')}
                     </span>
                   </div>
-                  <p className='mt-2 text-xs leading-5 text-muted-foreground'>{integration.detail}</p>
+                  <p className={cn('mt-2 w-fit rounded-full px-2 py-1 text-[11px] font-semibold', integration.counts_as_live ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700')}>
+                    {integration.counts_as_live ? 'Judge-counted live' : 'Fallback only'}
+                  </p>
+                  <p className='mt-2 text-xs leading-5 text-muted-foreground' title={integration.detail}>
+                    {integrationDisplayDetail(integration)}
+                  </p>
                 </div>
               ))}
             </CardContent>
