@@ -112,6 +112,18 @@ Configured integrations:
 
 Secrets are stored in `.env` and must not be committed. Use `.env.example` as the safe template.
 
+## Hosted deployment
+
+- Public command center UI: <https://day90-guardian-command-center-ui.vercel.app/>
+- Public backend health check: <https://day90-guardian-api-git-main-waseem-mushtaqs-projects.vercel.app/api/health>
+- Vercel backend project: `day90-guardian-api`
+- Vercel frontend project: `day90-guardian-command-center-ui`
+
+The hosted UI is intentionally protected with a demo access password because the
+Workbench can create real Slack and Asana review artifacts after a human
+approval. Share the demo password with judges through the submission form or an
+approved private channel; do not commit it to this repository.
+
 ## Local run
 
 ### Prerequisites
