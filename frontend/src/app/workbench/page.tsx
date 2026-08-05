@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { motion } from 'framer-motion'
 import { apiClient } from '@/lib/api-client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -81,7 +82,7 @@ export default function WorkbenchPage() {
   }
 
   return (
-    <div className='space-y-6'>
+    <motion.div className='space-y-6' initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
       <div>
         <p className='text-sm font-semibold uppercase tracking-wide text-brand-cornflower'>Human-in-the-loop control</p>
         <h1 className='mt-2 text-4xl font-bold tracking-tight text-brand-navy'>Day90 Workbench</h1>
@@ -217,6 +218,6 @@ export default function WorkbenchPage() {
           </Card>
         )}
       </div>
-    </div>
+    </motion.div>
   )
 }
