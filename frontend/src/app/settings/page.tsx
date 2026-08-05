@@ -10,12 +10,27 @@ import { cn } from '@/lib/utils'
 type Integration = {
   name: string
   category: string
+  proof_role: string
+  counts_as_live: boolean
   status: string
   detail: string
 }
 
+type IntegrationSummary = {
+  ready_live_integrations: number
+  total_live_integrations: number
+  ready_fallbacks: number
+  total_fallbacks: number
+  live_names: string[]
+  fallback_names: string[]
+  live_categories: string[]
+  meets_round2_minimum: boolean
+  judge_note: string
+}
+
 type DashboardPayload = {
   integrations: Integration[]
+  integration_summary: IntegrationSummary
 }
 
 type DataProfile = {
@@ -119,6 +134,12 @@ export default function SettingsPage() {
       ]
     : []
 
+  const integrationSummary = dashboard?.integration_summary
+  const liveReadyCount = integrationSummary?.ready_live_integrations ?? 0
+  const liveTotalCount = integrationSummary?.total_live_integrations ?? 0
+  const fallbackReadyCount = integrationSummary?.ready_fallbacks ?? 0
+  const fallbackTotalCount = integrationSummary?.total_fallbacks ?? 0
+
   return (
     <motion.div className='mx-auto w-full max-w-[1440px] overflow-x-hidden space-y-4' initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
       <section className='rounded-3xl border border-brand-cornflower/20 bg-gradient-to-br from-white via-white to-brand-cornflower/10 p-5 shadow-soft'>
@@ -134,6 +155,21 @@ export default function SettingsPage() {
         </div>
       </section>
 
+      <Card className='border-blue-200 bg-blue-50'>
+        <CardContent className='grid gap-3 p-4 lg:grid-cols-[220px_1fr] lg:items-center'>
+          <div>
+            <p className='text-xs font-semibold uppercase tracking-wide text-blue-700'>Round 2 integration proof</p>
+            <p className='mt-1 text-2xl font-bold text-blue-950'>{liveReadyCount}/{liveTotalCount} live integrations</p>
+          </div>
+          <div className='text-sm leading-6 text-blue-900'>
+            <p>Judge-counted systems are Supabase, Supervity Auto, Slack, and Asana across system-of-record, orchestration, channel, and work-system categories.</p>
+            <p className='mt-1 text-xs font-semibold text-blue-800'>
+              CSV fallback: {fallbackReadyCount}/{fallbackTotalCount} ready, retained only for controlled local recovery and not counted as a live integration.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className='grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-5'>
         {(dashboard?.integrations ?? []).map((integration) => (
           <Card key={integration.name} className='min-w-0'>
@@ -148,12 +184,15 @@ export default function SettingsPage() {
               </div>
               <p className='mt-4 font-semibold leading-5 text-brand-navy'>{integration.name}</p>
               <p className='mt-1 text-xs uppercase tracking-wide text-muted-foreground'>{integration.category}</p>
+              <p className={cn('mt-2 w-fit rounded-full px-2 py-1 text-[11px] font-semibold', integration.counts_as_live ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700')}>
+                {integration.counts_as_live ? 'Judge-counted live' : 'Fallback only'}
+              </p>
               <p
                 className='mt-3 break-words text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere]'
                 title={integration.detail}
               >
                 {integration.category === 'source data fallback'
-                  ? 'Controlled fallback dataset configured and verified on 2026-08-03.'
+                  ? 'Controlled fallback dataset configured; not counted as a judged live integration.'
                   : integration.detail}
               </p>
             </CardContent>
@@ -268,5 +307,3 @@ export default function SettingsPage() {
     </motion.div>
   )
 }
-
-

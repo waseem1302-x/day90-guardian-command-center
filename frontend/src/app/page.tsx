@@ -46,8 +46,22 @@ type OutcomeSummary = {
 type Integration = {
   name: string
   category: string
+  proof_role: string
+  counts_as_live: boolean
   status: string
   detail: string
+}
+
+type IntegrationSummary = {
+  ready_live_integrations: number
+  total_live_integrations: number
+  ready_fallbacks: number
+  total_fallbacks: number
+  live_names: string[]
+  fallback_names: string[]
+  live_categories: string[]
+  meets_round2_minimum: boolean
+  judge_note: string
 }
 
 type AuditEvent = {
@@ -71,6 +85,7 @@ type DashboardPayload = {
   outcomes: OutcomeSummary
   operators: Operator[]
   integrations: Integration[]
+  integration_summary: IntegrationSummary
   audit: AuditEvent[]
   source: {
     kind: string
@@ -159,7 +174,11 @@ export default function HomePage() {
 
   if (!data) return <LoadingShell />
 
-  const liveReadyCount = data.integrations.filter((integration) => integration.status === 'ready').length
+  const integrationSummary = data.integration_summary
+  const liveReadyCount = integrationSummary?.ready_live_integrations ?? data.integrations.filter((integration) => integration.counts_as_live && integration.status === 'ready').length
+  const liveTotalCount = integrationSummary?.total_live_integrations ?? data.integrations.filter((integration) => integration.counts_as_live).length
+  const fallbackReadyCount = integrationSummary?.ready_fallbacks ?? data.integrations.filter((integration) => !integration.counts_as_live && integration.status === 'ready').length
+  const fallbackTotalCount = integrationSummary?.total_fallbacks ?? data.integrations.filter((integration) => !integration.counts_as_live).length
   const latestSlack = data.audit.find((event) => event.event === 'External action: slack')
   const latestAsana = data.audit.find((event) => event.event === 'External action: asana')
   const latestTrigger = data.audit.find((event) => event.event === 'Manual trigger requested')
@@ -173,7 +192,8 @@ export default function HomePage() {
             <div className='flex flex-wrap items-center gap-2'>
               <span className='rounded-full bg-brand-navy px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white'>Live HR control plane</span>
               <span className='rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700'>Supabase system of record</span>
-              <span className='rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700'>{liveReadyCount}/{data.integrations.length} integrations ready</span>
+              <span className='rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700'>{liveReadyCount}/{liveTotalCount} live integrations</span>
+              <span className='rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700'>{fallbackReadyCount}/{fallbackTotalCount} fallback ready</span>
             </div>
             <h1 className='mt-3 text-3xl font-bold tracking-tight text-brand-navy lg:text-4xl'>Day90 Guardian Command Center</h1>
             <p className='mt-2 max-w-3xl text-sm leading-6 text-muted-foreground lg:text-base'>
@@ -203,8 +223,8 @@ export default function HomePage() {
         <Card className='border-blue-200 bg-blue-50'>
           <CardContent className='p-4'>
             <p className='text-xs font-semibold uppercase tracking-wide text-blue-700'>Connected systems</p>
-            <p className='mt-1 text-xl font-bold text-blue-950'>{liveReadyCount}/{data.integrations.length} ready</p>
-            <p className='mt-1 text-xs leading-5 text-blue-800'>Data, orchestration, notifications, and task handoff are connected.</p>
+            <p className='mt-1 text-xl font-bold text-blue-950'>{liveReadyCount}/{liveTotalCount} live</p>
+            <p className='mt-1 text-xs leading-5 text-blue-800'>Judged live systems: Supabase, Supervity Auto, Slack, and Asana. CSV is fallback only.</p>
           </CardContent>
         </Card>
 

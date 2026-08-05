@@ -62,6 +62,8 @@ def integration_registry(source: dict) -> list[dict]:
         {
             "name": "Supabase",
             "category": "system of record",
+            "proof_role": "judged_live_integration",
+            "counts_as_live": True,
             "status": "ready" if supabase_ready else "needs_api_key",
             "detail": (
                 "Configured as final live data source."
@@ -77,14 +79,18 @@ def integration_registry(source: dict) -> list[dict]:
         {
             "name": "Round 2 CSV Mount",
             "category": "source data fallback",
+            "proof_role": "controlled_fallback_not_judged_live",
+            "counts_as_live": False,
             "status": "ready" if source.get("available") else "missing",
-            "detail": f"{source.get('path')} as of {source.get('as_of_date')}",
+            "detail": f"Controlled fallback only; not counted as a judged live integration. {source.get('path')} as of {source.get('as_of_date')}",
             "configured": bool(source.get("available")),
             "safe_config": {"DAY90_DATASET_DIR": source.get("path")},
         },
         {
             "name": "Supervity Auto",
             "category": "orchestration",
+            "proof_role": "judged_live_integration",
+            "counts_as_live": True,
             "status": "ready" if supervity_ready else "needs_api_key",
             "detail": (
                 "Workflow execute endpoint and API key configured."
@@ -100,6 +106,8 @@ def integration_registry(source: dict) -> list[dict]:
         {
             "name": "Slack",
             "category": "channel",
+            "proof_role": "judged_live_integration",
+            "counts_as_live": True,
             "status": "ready" if slack_ready else "needs_api_key",
             "detail": (
                 "Bot token and target channel configured for masked case notifications."
@@ -115,6 +123,8 @@ def integration_registry(source: dict) -> list[dict]:
         {
             "name": "Asana",
             "category": "work system",
+            "proof_role": "judged_live_integration",
+            "counts_as_live": True,
             "status": "ready" if asana_ready else "needs_api_key",
             "detail": (
                 "Access token and project configured; new review tasks receive an owner and route-based due date."
@@ -129,6 +139,26 @@ def integration_registry(source: dict) -> list[dict]:
             },
         },
     ]
+
+
+def live_integration_summary(registry: list[dict]) -> dict:
+    live_items = [item for item in registry if item.get("counts_as_live")]
+    fallback_items = [item for item in registry if not item.get("counts_as_live")]
+    ready_live = [item for item in live_items if item.get("status") == "ready" and item.get("configured")]
+    ready_fallbacks = [item for item in fallback_items if item.get("status") == "ready" and item.get("configured")]
+    categories = sorted({item["category"] for item in live_items})
+
+    return {
+        "ready_live_integrations": len(ready_live),
+        "total_live_integrations": len(live_items),
+        "ready_fallbacks": len(ready_fallbacks),
+        "total_fallbacks": len(fallback_items),
+        "live_names": [item["name"] for item in live_items],
+        "fallback_names": [item["name"] for item in fallback_items],
+        "live_categories": categories,
+        "meets_round2_minimum": len(ready_live) >= 3 and "channel" in categories and "system of record" in categories,
+        "judge_note": "CSV is retained as a controlled fallback and is not counted toward the judged live integration total.",
+    }
 
 
 def all_required_live_integrations_ready(source: dict) -> bool:

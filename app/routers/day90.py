@@ -14,6 +14,7 @@ from app.services.day90_integrations import (
     create_masked_reviewer_actions,
     execute_supervity_orchestrator,
     integration_registry,
+    live_integration_summary,
     seed_supabase_source_records,
 )
 from app.services.day90_data import DATASET_DIR, compute_day90_profile
@@ -557,6 +558,7 @@ def _insights_from_profile(profile: dict) -> list[dict]:
 def dashboard_payload() -> dict:
     profile = _profile()
     cases = _workbench_cases_from_profile(profile)
+    registry = integration_registry(profile["source"])
     return {
         "run": {
             "name": "Day90 Guardian Command Center",
@@ -583,7 +585,8 @@ def dashboard_payload() -> dict:
         "routes": _route_counts(profile),
         "outcomes": _outcome_metrics(profile, cases),
         "operators": OPERATORS,
-        "integrations": integration_registry(profile["source"]),
+        "integrations": registry,
+        "integration_summary": live_integration_summary(registry),
         "audit": AUDIT_TRAIL,
         "source": profile["source"],
     }
@@ -613,6 +616,7 @@ def get_integrations():
     return {
         "ready_for_live_demo": all_required_live_integrations_ready(profile["source"]),
         "integrations": registry,
+        "integration_summary": live_integration_summary(registry),
         "required_live_integrations": ["Supabase", "Supervity Auto", "Slack", "Asana"],
         "safe_note": "Secrets are never returned; only masked/configured status is exposed.",
     }

@@ -63,6 +63,28 @@ async def test_integration_registry_never_returns_secret_fragments(monkeypatch):
     assert not any("secret" in value for value in secrets.values())
 
 
+async def test_live_integration_summary_excludes_csv_fallback(monkeypatch):
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "super-secret-value")
+    monkeypatch.setenv("SUPERVITY_WORKFLOW_EXECUTE_URL", "https://workflow.example/execute")
+    monkeypatch.setenv("SUPERVITY_API_KEY", "workflow-secret-value")
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-secret-value")
+    monkeypatch.setenv("SLACK_CHANNEL_ID", "C123")
+    monkeypatch.setenv("ASANA_ACCESS_TOKEN", "asana-secret-value")
+    monkeypatch.setenv("ASANA_PROJECT_GID", "P123")
+
+    registry = day90_integrations.integration_registry({"available": True, "path": "csv", "as_of_date": "today"})
+    summary = day90_integrations.live_integration_summary(registry)
+    csv_fallback = next(item for item in registry if item["name"] == "Round 2 CSV Mount")
+
+    assert summary["ready_live_integrations"] == 4
+    assert summary["total_live_integrations"] == 4
+    assert summary["ready_fallbacks"] == 1
+    assert csv_fallback["counts_as_live"] is False
+    assert csv_fallback["name"] not in summary["live_names"]
+    assert summary["meets_round2_minimum"] is True
+
+
 def _fake_day90_ai_context():
     return {
         "available": True,
