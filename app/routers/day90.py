@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from app.services.day90_integrations import (
     all_required_live_integrations_ready,
     create_masked_reviewer_actions,
+    execute_supervity_orchestrator,
     integration_registry,
     seed_supabase_source_records,
 )
@@ -583,6 +584,17 @@ def trigger_run():
     live_ready = all_required_live_integrations_ready(profile["source"])
     cases = _workbench_cases_from_profile(profile)
     run_tag = f"R2-LIVE-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+    auto_receipt = execute_supervity_orchestrator(profile, cases, run_tag)
+    if auto_receipt.get("status") != "not_configured":
+        AUDIT_TRAIL.insert(
+            0,
+            {
+                "time": timestamp,
+                "event": "Auto orchestration proof",
+                "actor": "Day90 Guardian Orchestrator",
+                "detail": str(auto_receipt.get("detail", ""))[:240],
+            },
+        )
     AUDIT_TRAIL.insert(
         0,
         {
@@ -605,6 +617,7 @@ def trigger_run():
         ),
         "ready_for_live_demo": live_ready,
         "run_tag": run_tag,
+        "orchestrator": auto_receipt,
         "external_actions": [],
         "audit": deepcopy(AUDIT_TRAIL[0]),
     }

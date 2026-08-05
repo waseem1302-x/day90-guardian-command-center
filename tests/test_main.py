@@ -144,6 +144,9 @@ async def test_approved_decision_is_idempotent(monkeypatch):
 
 async def test_manual_trigger_stages_actions_behind_workbench(monkeypatch):
     """A scan may be live-ready, but it must not notify until approval."""
+    monkeypatch.setenv("SUPERVITY_WORKFLOW_EXECUTE_URL", "https://workflow.example/execute")
+    monkeypatch.setenv("SUPERVITY_API_KEY", "test-supervity-token")
+    monkeypatch.delenv("DAY90_SUPERVITY_TRIGGER_ENABLED", raising=False)
     monkeypatch.setattr(day90, "_profile", lambda: {"source": {"available": True}})
     monkeypatch.setattr(
         day90,
@@ -156,6 +159,11 @@ async def test_manual_trigger_stages_actions_behind_workbench(monkeypatch):
         "create_masked_reviewer_actions",
         lambda *_args, **_kwargs: pytest.fail("external action bypassed Workbench approval"),
     )
+    monkeypatch.setattr(
+        day90_integrations.httpx,
+        "post",
+        lambda *_args, **_kwargs: pytest.fail("Supervity execution should require an explicit enable flag"),
+    )
 
     audit_before = deepcopy(day90.AUDIT_TRAIL)
     try:
@@ -163,6 +171,74 @@ async def test_manual_trigger_stages_actions_behind_workbench(monkeypatch):
 
         assert result["ready_for_live_demo"] is True
         assert result["external_actions"] == []
+        assert result["orchestrator"]["status"] == "configured_not_executed"
+        assert result["orchestrator"]["executed"] is False
         assert "approve" in result["message"].lower()
+    finally:
+        day90.AUDIT_TRAIL[:] = audit_before
+
+
+async def test_manual_trigger_can_call_supervity_with_approval_gated_payload(monkeypatch):
+    """When explicitly enabled, the backend calls Auto without bypassing Workbench approval."""
+    monkeypatch.setenv("SUPERVITY_WORKFLOW_EXECUTE_URL", "https://workflow.example/execute")
+    monkeypatch.setenv("SUPERVITY_API_KEY", "test-supervity-token")
+    monkeypatch.setenv("DAY90_SUPERVITY_TRIGGER_ENABLED", "true")
+    monkeypatch.setattr(
+        day90,
+        "_profile",
+        lambda: {
+            "source": {"available": True},
+            "route_counts": {"GREEN": 1, "AMBER": 1, "RED": 0, "CONFIDENTIAL": 0, "DATA_QUALITY": 0},
+        },
+    )
+    monkeypatch.setattr(
+        day90,
+        "_workbench_cases_from_profile",
+        lambda _profile: [
+            {
+                "id": "case-1",
+                "case_key": "R2|EMP7001|DAY90|hr-default|1",
+                "route": "AMBER",
+                "risk_band": "Amber",
+                "status": "pending_review",
+                "employee_id": "EMP7001",
+            }
+        ],
+    )
+    monkeypatch.setattr(day90, "all_required_live_integrations_ready", lambda _source: True)
+    monkeypatch.setattr(
+        day90,
+        "create_masked_reviewer_actions",
+        lambda *_args, **_kwargs: pytest.fail("external action bypassed Workbench approval"),
+    )
+
+    requests = []
+
+    class FakeResponse:
+        status_code = 202
+        content = b'{"run_id":"RUN-123","status":"queued"}'
+
+        def json(self):
+            return {"run_id": "RUN-123", "status": "queued"}
+
+    def fake_post(url, **kwargs):
+        requests.append({"url": url, **kwargs})
+        return FakeResponse()
+
+    monkeypatch.setattr(day90_integrations.httpx, "post", fake_post)
+
+    audit_before = deepcopy(day90.AUDIT_TRAIL)
+    try:
+        result = day90.trigger_run()
+
+        assert result["external_actions"] == []
+        assert result["orchestrator"]["ok"] is True
+        assert result["orchestrator"]["executed"] is True
+        assert result["orchestrator"]["run_id"] == "RUN-123"
+        assert len(requests) == 1
+        assert requests[0]["headers"]["Authorization"].startswith("Bearer ")
+        assert requests[0]["json"]["external_actions_allowed"] is False
+        assert requests[0]["json"]["workbench_approval_required"] is True
+        assert requests[0]["json"]["cases"][0]["employee_id"] == "EMP7001"
     finally:
         day90.AUDIT_TRAIL[:] = audit_before

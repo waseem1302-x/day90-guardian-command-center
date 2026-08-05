@@ -137,6 +137,107 @@ def all_required_live_integrations_ready(source: dict) -> bool:
     return all(item["configured"] for item in registry if item["name"] in required)
 
 
+def supervity_trigger_enabled() -> bool:
+    return os.getenv("DAY90_SUPERVITY_TRIGGER_ENABLED", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: str) -> dict:
+    """Call the Auto Orchestrator when explicitly enabled.
+
+    The default is proof-safe: report configuration without executing the
+    external workflow. Enabling execution is a deployment choice because Auto
+    workflows can be connected to real downstream systems.
+    """
+
+    workflow_url = os.getenv("SUPERVITY_WORKFLOW_EXECUTE_URL", "").strip()
+    api_key = os.getenv("SUPERVITY_API_KEY", "").strip()
+    if not workflow_url or not api_key:
+        return {
+            "system": "supervity_auto",
+            "ok": False,
+            "executed": False,
+            "status": "not_configured",
+            "detail": "Supervity workflow URL or API key is missing.",
+        }
+
+    if not supervity_trigger_enabled():
+        return {
+            "system": "supervity_auto",
+            "ok": True,
+            "executed": False,
+            "status": "configured_not_executed",
+            "detail": "Supervity is configured; execution is disabled by DAY90_SUPERVITY_TRIGGER_ENABLED.",
+        }
+
+    payload = {
+        "source": "day90_command_center",
+        "mode": "approval_gated",
+        "run_tag": run_tag,
+        "batch_id": "R2-BATCH-20260803",
+        "policy_profile": "hr-default",
+        "policy_version": 1,
+        "external_actions_allowed": False,
+        "workbench_approval_required": True,
+        "route_counts": profile.get("route_counts", {}),
+        "case_count": len(cases),
+        "cases": [
+            {
+                "case_id": case.get("id"),
+                "case_key": case.get("case_key"),
+                "employee_id": case.get("employee_id"),
+                "route": case.get("route"),
+                "risk_band": case.get("risk_band"),
+                "status": case.get("status"),
+            }
+            for case in cases[:12]
+        ],
+    }
+
+    try:
+        timeout_seconds = int(os.getenv("DAY90_SUPERVITY_TIMEOUT_SECONDS", "20"))
+        response = httpx.post(
+            workflow_url,
+            headers={"Authorization": f"Bearer {api_key}"},
+            json=payload,
+            timeout=timeout_seconds,
+        )
+        response_payload = response.json() if response.content else {}
+        run_id = (
+            response_payload.get("run_id")
+            or response_payload.get("id")
+            or response_payload.get("data", {}).get("id")
+        )
+        status_text = response_payload.get("status") or response_payload.get("state")
+        return {
+            "system": "supervity_auto",
+            "ok": response.status_code < 400,
+            "executed": True,
+            "status": status_text or ("accepted" if response.status_code < 400 else "failed"),
+            "status_code": response.status_code,
+            "run_id": run_id,
+            "detail": (
+                f"Auto Orchestrator accepted run {run_id}."
+                if response.status_code < 400 and run_id
+                else "Auto Orchestrator execution request completed."
+                if response.status_code < 400
+                else f"Auto Orchestrator execution failed with HTTP {response.status_code}."
+            ),
+        }
+    except Exception as exc:  # pragma: no cover - network dependent
+        return {
+            "system": "supervity_auto",
+            "ok": False,
+            "executed": True,
+            "status": "error",
+            "detail": str(exc)[:240],
+        }
+
+
 def create_masked_reviewer_actions(case: dict, run_tag: str) -> list[dict]:
     """Create safe, route-aware reviewer artifacts.
 
