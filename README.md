@@ -82,6 +82,11 @@ The system computes signals from HR source tables including:
 - Attrition history context
 - Cross-team dependencies
 
+The app reports this as 11/11 operational HR tables loaded. The 17 cohort count
+is shown separately because it is derived from Workers, not a separate source
+table. The source workbook's Field Dictionary is treated as a semantic reference
+for the table fields, not as an operational table.
+
 Primary source is Supabase when configured. The mounted CSV dataset is retained as a controlled local fallback.
 
 ## Governance and privacy rules

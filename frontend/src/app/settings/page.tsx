@@ -33,6 +33,33 @@ type DashboardPayload = {
   integration_summary: IntegrationSummary
 }
 
+type CoverageTable = {
+  key: string
+  table: string
+  domain: string
+  purpose: string
+  rows: number
+  loaded: boolean
+}
+
+type DatasetCoverage = {
+  expected_operational_tables: number
+  loaded_operational_tables: number
+  total_operational_rows: number
+  cohorts_covered: number
+  field_dictionary: {
+    included_in_source_workbook: boolean
+    role: string
+  }
+  domains: {
+    name: string
+    tables: string[]
+    rows: number
+  }[]
+  tables: CoverageTable[]
+  judge_note: string
+}
+
 type DataProfile = {
   source: {
     kind: string
@@ -76,6 +103,7 @@ type DataProfile = {
   }
   attrition_rates: Record<string, number>
   route_counts: Record<string, number>
+  dataset_coverage: DatasetCoverage
 }
 
 const tablePurpose: Record<string, string> = {
@@ -116,11 +144,17 @@ export default function SettingsPage() {
 
   const sourceTables = useMemo(() => {
     if (!profile) return []
-    return Object.entries(profile.counts).map(([name, rows]) => ({
-      name,
-      rows,
-      purpose: tablePurpose[name] ?? 'Operational HR source table',
-    }))
+    if (profile.dataset_coverage?.tables?.length) return profile.dataset_coverage.tables
+    return Object.entries(profile.counts)
+      .filter(([name]) => name !== 'cohorts')
+      .map(([name, rows]) => ({
+        key: name,
+        table: name,
+        domain: 'Operational HR source table',
+        rows,
+        loaded: rows > 0,
+        purpose: tablePurpose[name] ?? 'Operational HR source table',
+      }))
   }, [profile])
 
   const riskSignals = profile
@@ -231,6 +265,51 @@ export default function SettingsPage() {
         </Card>
       )}
 
+      {profile?.dataset_coverage && (
+        <Card className='min-w-0 border-emerald-200 bg-emerald-50'>
+          <CardHeader className='pb-3'>
+            <CardTitle className='flex items-center gap-2'>
+              <Icons.table className='h-5 w-5 text-emerald-700' />
+              Round 2 Dataset Coverage
+            </CardTitle>
+          </CardHeader>
+          <CardContent className='space-y-4'>
+            <div className='grid gap-3 md:grid-cols-4'>
+              <div className='rounded-xl border border-emerald-100 bg-white p-4'>
+                <p className='text-xs font-semibold uppercase tracking-wide text-emerald-700'>Operational tables</p>
+                <p className='mt-2 text-2xl font-bold text-emerald-950'>
+                  {profile.dataset_coverage.loaded_operational_tables}/{profile.dataset_coverage.expected_operational_tables}
+                </p>
+              </div>
+              <div className='rounded-xl border border-emerald-100 bg-white p-4'>
+                <p className='text-xs font-semibold uppercase tracking-wide text-emerald-700'>Rows loaded</p>
+                <p className='mt-2 text-2xl font-bold text-emerald-950'>{profile.dataset_coverage.total_operational_rows.toLocaleString()}</p>
+              </div>
+              <div className='rounded-xl border border-emerald-100 bg-white p-4'>
+                <p className='text-xs font-semibold uppercase tracking-wide text-emerald-700'>Cohorts covered</p>
+                <p className='mt-2 text-2xl font-bold text-emerald-950'>{profile.dataset_coverage.cohorts_covered}</p>
+              </div>
+              <div className='rounded-xl border border-emerald-100 bg-white p-4'>
+                <p className='text-xs font-semibold uppercase tracking-wide text-emerald-700'>Field Dictionary</p>
+                <p className='mt-2 text-sm font-semibold leading-6 text-emerald-950'>
+                  {profile.dataset_coverage.field_dictionary.included_in_source_workbook ? 'Included as reference' : 'Not provided'}
+                </p>
+              </div>
+            </div>
+            <p className='text-sm leading-6 text-emerald-900'>{profile.dataset_coverage.judge_note}</p>
+            <div className='grid gap-3 lg:grid-cols-3'>
+              {profile.dataset_coverage.domains.map((domain) => (
+                <div key={domain.name} className='rounded-xl border border-emerald-100 bg-white p-4'>
+                  <p className='font-semibold text-brand-navy'>{domain.name}</p>
+                  <p className='mt-1 text-sm text-emerald-800'>{domain.rows.toLocaleString()} rows</p>
+                  <p className='mt-2 text-xs leading-5 text-muted-foreground'>{domain.tables.join(', ')}</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <div className='grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1fr)_360px]'>
         <Card className='min-w-0'>
           <CardHeader className='pb-3'>
@@ -251,8 +330,8 @@ export default function SettingsPage() {
                 </thead>
                 <tbody className='divide-y divide-border'>
                   {sourceTables.map((table) => (
-                    <tr key={table.name} className='bg-white'>
-                      <td className='px-4 py-3 font-mono text-brand-navy'>{table.name}</td>
+                    <tr key={table.table} className='bg-white'>
+                      <td className='px-4 py-3 font-mono text-brand-navy'>{table.table}</td>
                       <td className='px-4 py-3 text-right font-semibold text-brand-navy'>{table.rows.toLocaleString()}</td>
                       <td className='px-4 py-3 text-muted-foreground'>{table.purpose}</td>
                     </tr>

@@ -363,6 +363,36 @@ async def test_outcome_metrics_are_measured_without_retention_lift_claim():
     assert outcomes["cards"][0]["value"] == "4"
 
 
+async def test_dataset_coverage_explains_round2_source_breadth():
+    profile = {
+        "counts": {
+            "workers": 150,
+            "cohorts": 17,
+            "tasks": 1952,
+            "provisioning": 751,
+            "engagement": 332,
+            "managers": 40,
+            "locations": 6,
+            "compliance": 300,
+            "payroll": 150,
+            "learning": 450,
+            "attrition_history": 190,
+            "cross_team_dependencies": 600,
+        }
+    }
+
+    coverage = day90._dataset_coverage(profile)
+
+    assert coverage["expected_operational_tables"] == 11
+    assert coverage["loaded_operational_tables"] == 11
+    assert coverage["total_operational_rows"] == 4921
+    assert coverage["cohorts_covered"] == 17
+    assert coverage["field_dictionary"]["included_in_source_workbook"] is True
+    assert "cohorts" not in {table["key"] for table in coverage["tables"]}
+    assert "Workers" in {table["table"] for table in coverage["tables"]}
+    assert "Cross_Team_Dependencies" in {table["table"] for table in coverage["tables"]}
+
+
 async def test_manual_trigger_can_call_supervity_with_approval_gated_payload(monkeypatch):
     """When explicitly enabled, the backend calls Auto without bypassing Workbench approval."""
     monkeypatch.setenv("SUPERVITY_WORKFLOW_EXECUTE_URL", "https://workflow.example/execute")
