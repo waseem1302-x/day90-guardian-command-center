@@ -80,6 +80,14 @@ def _fake_day90_ai_context():
             {"route": "CONFIDENTIAL", "count": 4, "description": "Restricted review"},
             {"route": "DATA_QUALITY", "count": 1, "description": "Fix source data"},
         ],
+        "outcomes": {
+            "workers_in_scope": 150,
+            "risky_cases_routed": 84,
+            "policy_gate_coverage_pct": 100,
+            "workbench_cases_visible": 12,
+            "public_text_leakage": 0,
+            "retention_lift_claimed": False,
+        },
         "integrations_ready": 5,
         "integrations_total": 5,
         "source": {"kind": "supabase", "as_of_date": "2026-08-03"},
@@ -120,6 +128,18 @@ async def test_ai_manager_explains_policy_impact_with_counts(monkeypatch):
     assert "AMBER 13" in result["response"]
     assert "Amber Manager Nudge" in result["response"]
     assert result["tool_calls"][0]["name"] == "explain_policy_impact"
+
+
+async def test_ai_manager_reports_measured_outcomes_without_attrition_lift(monkeypatch):
+    monkeypatch.setattr(ai, "_safe_day90_context", _fake_day90_ai_context)
+
+    result = ai.chat(ai.ChatRequest(message="What outcome impact is measured?", context={"page": "/"}))
+
+    assert "leading operational controls" in result["response"]
+    assert "84" in result["response"]
+    assert "does **not** claim proven retention lift" in result["response"]
+    assert result["tool_calls"][0]["name"] == "summarize_outcome_measurement"
+    assert result["tool_calls"][0]["result"]["outcomes"]["retention_lift_claimed"] is False
 
 
 async def test_route_aware_reviewer_actions(monkeypatch):
@@ -299,6 +319,26 @@ async def test_confidential_policy_route_is_locked():
         assert getattr(exc_info.value, "status_code", None) == 400
     finally:
         day90.POLICIES[:] = policies_before
+
+
+async def test_outcome_metrics_are_measured_without_retention_lift_claim():
+    profile = {
+        "counts": {"workers": 10},
+        "route_counts": {"GREEN": 6, "AMBER": 2, "RED": 1, "CONFIDENTIAL": 1, "DATA_QUALITY": 0},
+        "provisioning": {"blocked": 3},
+        "compliance": {"missing": 1, "overdue": 2},
+        "payroll": {"errors": 1},
+        "engagement": {"low_nonconf": 2, "confidential": 1},
+    }
+
+    outcomes = day90._outcome_metrics(profile, [{"id": "case-1"}, {"id": "case-2"}])
+
+    assert outcomes["retention_lift_claimed"] is False
+    assert outcomes["risky_cases_routed"] == 4
+    assert outcomes["policy_gate_coverage_pct"] == 100
+    assert outcomes["workbench_cases_visible"] == 2
+    assert outcomes["public_text_leakage"] == 0
+    assert outcomes["cards"][0]["value"] == "4"
 
 
 async def test_manual_trigger_can_call_supervity_with_approval_gated_payload(monkeypatch):

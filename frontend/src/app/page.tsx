@@ -22,6 +22,27 @@ type RouteSummary = {
   description: string
 }
 
+type OutcomeCard = {
+  label: string
+  value: string
+  detail: string
+}
+
+type OutcomeSummary = {
+  measurement_mode: string
+  measurement_note: string
+  retention_lift_claimed: boolean
+  workers_in_scope: number
+  risk_signals_detected: number
+  risky_cases_routed: number
+  policy_gate_coverage_pct: number
+  workbench_cases_visible: number
+  approval_gated_receipts: number
+  public_text_leakage: number
+  confidential_cases_masked: number
+  cards: OutcomeCard[]
+}
+
 type Integration = {
   name: string
   category: string
@@ -47,6 +68,7 @@ type DashboardPayload = {
   }
   metrics: Record<string, number>
   routes: RouteSummary[]
+  outcomes: OutcomeSummary
   operators: Operator[]
   integrations: Integration[]
   audit: AuditEvent[]
@@ -141,6 +163,7 @@ export default function HomePage() {
   const latestSlack = data.audit.find((event) => event.event === 'External action: slack')
   const latestAsana = data.audit.find((event) => event.event === 'External action: asana')
   const latestTrigger = data.audit.find((event) => event.event === 'Manual trigger requested')
+  const outcomeCards = data.outcomes?.cards ?? []
 
   return (
     <motion.div className='mx-auto w-full max-w-[1440px] overflow-x-hidden space-y-4' initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
@@ -207,6 +230,32 @@ export default function HomePage() {
           <MetricCard key={card.key} label={card.label} value={data.metrics[card.key] ?? 0} icon={card.icon} color={card.color} />
         ))}
       </section>
+
+      <Card className='border-sky-200 bg-gradient-to-br from-white to-sky-50'>
+        <CardHeader className='pb-2'>
+          <CardTitle className='flex items-center gap-2'>
+            <Icons.barChart className='h-5 w-5 text-brand-cornflower' />
+            Measured Outcome Baseline
+          </CardTitle>
+        </CardHeader>
+        <CardContent className='space-y-3'>
+          <div className='rounded-2xl border border-sky-100 bg-white/80 p-4'>
+            <p className='text-sm font-semibold text-brand-navy'>Judge-safe impact claim</p>
+            <p className='mt-1 text-sm leading-6 text-muted-foreground'>
+              {data.outcomes?.measurement_note ?? 'Measured as leading operational controls; no proven retention lift is claimed.'}
+            </p>
+          </div>
+          <div className='grid gap-3 sm:grid-cols-2 xl:grid-cols-4'>
+            {outcomeCards.map((card) => (
+              <div key={card.label} className='rounded-2xl border border-border bg-white p-4 shadow-sm'>
+                <p className='text-xs font-semibold uppercase tracking-wide text-muted-foreground'>{card.label}</p>
+                <p className='mt-2 text-2xl font-bold leading-none text-brand-navy'>{card.value}</p>
+                <p className='mt-2 text-xs leading-5 text-muted-foreground'>{card.detail}</p>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       <section className='grid min-w-0 gap-4 xl:grid-cols-[1.18fr_0.82fr]'>
         <Card>

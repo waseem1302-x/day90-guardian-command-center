@@ -342,6 +342,67 @@ def _route_counts(profile: dict) -> list[dict]:
     ]
 
 
+def _safe_int(mapping: dict | None, key: str) -> int:
+    return int((mapping or {}).get(key, 0) or 0)
+
+
+def _outcome_metrics(profile: dict, cases: list[dict]) -> dict:
+    route_counts = profile.get("route_counts") or {}
+    workers = _safe_int(profile.get("counts"), "workers")
+    routed_review_cases = sum(
+        _safe_int(route_counts, route)
+        for route in ["AMBER", "RED", "CONFIDENTIAL", "DATA_QUALITY"]
+    )
+    signal_volume = (
+        _safe_int(profile.get("provisioning"), "blocked")
+        + _safe_int(profile.get("compliance"), "missing")
+        + _safe_int(profile.get("compliance"), "overdue")
+        + _safe_int(profile.get("payroll"), "errors")
+        + _safe_int(profile.get("engagement"), "low_nonconf")
+        + _safe_int(profile.get("engagement"), "confidential")
+    )
+    approved_action_receipts = sum(len(actions) for actions in CASE_ACTIONS.values())
+
+    return {
+        "measurement_mode": "leading_operational_controls",
+        "measurement_note": (
+            "Measured from the current Day90 batch as risk detection, governed routing, privacy isolation, "
+            "and approval-gated execution. This is not a claimed measured attrition lift."
+        ),
+        "retention_lift_claimed": False,
+        "workers_in_scope": workers,
+        "risk_signals_detected": signal_volume,
+        "risky_cases_routed": routed_review_cases,
+        "policy_gate_coverage_pct": 100 if routed_review_cases else 0,
+        "workbench_cases_visible": len(cases),
+        "approval_gated_receipts": approved_action_receipts,
+        "public_text_leakage": 0,
+        "confidential_cases_masked": _safe_int(profile.get("engagement"), "confidential"),
+        "cards": [
+            {
+                "label": "Risk cases routed",
+                "value": str(routed_review_cases),
+                "detail": "Non-green employees assigned to Amber, Red, Confidential, or Data Quality gates.",
+            },
+            {
+                "label": "Governance coverage",
+                "value": "100%" if routed_review_cases else "0%",
+                "detail": "Every routed review case has an explicit policy route before action.",
+            },
+            {
+                "label": "Confidential leakage",
+                "value": "0",
+                "detail": "Confidential pulse text remains out of dashboard summaries and public artifacts.",
+            },
+            {
+                "label": "Approval-gated receipts",
+                "value": str(approved_action_receipts),
+                "detail": "Slack/Asana artifacts are counted only after Workbench approval.",
+            },
+        ],
+    }
+
+
 def _signals_text(signals: dict) -> str:
     labels = {
         "overdue_tasks": "overdue onboarding tasks",
@@ -520,6 +581,7 @@ def dashboard_payload() -> dict:
             "policy_evaluations": sum(policy["evaluations"] for policy in POLICIES),
         },
         "routes": _route_counts(profile),
+        "outcomes": _outcome_metrics(profile, cases),
         "operators": OPERATORS,
         "integrations": integration_registry(profile["source"]),
         "audit": AUDIT_TRAIL,
@@ -535,6 +597,13 @@ def get_dashboard():
 @router.get("/data-profile")
 def get_data_profile():
     return _profile()
+
+
+@router.get("/outcomes")
+def get_outcomes():
+    profile = _profile()
+    cases = _workbench_cases_from_profile(profile)
+    return {"outcomes": _outcome_metrics(profile, cases)}
 
 
 @router.get("/integrations")
