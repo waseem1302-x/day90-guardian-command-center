@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useEffect, useCallback } from 'react'
+import { useRef, useEffect, useCallback, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useSession } from 'next-auth/react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -12,6 +12,24 @@ import { Button } from '@/components/ui/button'
 import { ChatMessage } from './ChatMessage'
 import { ChatInput } from './ChatInput'
 import { CapabilityBubbles } from './CapabilityBubbles'
+
+const GUARDIAN_REVIEW_ACTION = 'Run Guardian Review'
+
+interface GuardianRunResponse {
+  status: string
+  message?: string
+  ready_for_live_demo: boolean
+  run_tag: string
+  orchestrator?: {
+    status?: string
+    run_id?: string | null
+    detail?: string
+  }
+  external_actions?: unknown[]
+  audit?: {
+    event?: string
+  }
+}
 
 // ============================================================================
 // Animation Variants
@@ -68,6 +86,8 @@ export function AIManager() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const modalRef = useRef<HTMLDivElement>(null)
+  const guardianRunInFlightRef = useRef(false)
+  const [isGuardianConfirmationOpen, setIsGuardianConfirmationOpen] = useState(false)
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -108,6 +128,16 @@ export function AIManager() {
     // Add user message
     addMessage({ role: 'user', content })
 
+    if (content.trim().toLowerCase() === GUARDIAN_REVIEW_ACTION.toLowerCase()) {
+      addMessage({
+        role: 'assistant',
+        content:
+          'Guardian Review will call the existing Auto orchestration endpoint. The trigger cannot create Slack or Asana actions; those remain behind Workbench approval. Confirm below when you are ready.',
+      })
+      setIsGuardianConfirmationOpen(true)
+      return
+    }
+
     // Add loading message
     addMessage({ role: 'assistant', content: '', isLoading: true })
     setIsTyping(true)
@@ -144,6 +174,63 @@ export function AIManager() {
       setIsTyping(false)
     }
   }, [addMessage, chatHistory, currentPageContext, setIsTyping])
+
+  const confirmGuardianReview = useCallback(async () => {
+    if (guardianRunInFlightRef.current) return
+
+    guardianRunInFlightRef.current = true
+    setIsGuardianConfirmationOpen(false)
+    addMessage({ role: 'user', content: 'Confirm Guardian Review' })
+    addMessage({ role: 'assistant', content: '', isLoading: true })
+    setIsTyping(true)
+
+    try {
+      const result = await apiClient.post<GuardianRunResponse>('/api/day90/runs/trigger')
+      const externalActionCount = result.external_actions?.length ?? 0
+      const autoStatus = result.orchestrator?.status ?? 'not reported'
+      const runIdLine = result.orchestrator?.run_id
+        ? `\n- Auto run ID: \`${result.orchestrator.run_id}\``
+        : ''
+      const auditLine = result.audit?.event
+        ? `\n- Audit event: **${result.audit.event}**`
+        : ''
+      const detail = result.orchestrator?.detail
+        ? `\n\n${result.orchestrator.detail}`
+        : ''
+
+      addMessage({
+        role: 'assistant',
+        content:
+          `${result.message ?? 'Guardian Review trigger captured.'}\n\n` +
+          `- Run tag: \`${result.run_tag}\`\n` +
+          `- Command Center status: **${result.status}**\n` +
+          `- Auto status: **${autoStatus}**${runIdLine}\n` +
+          `- External actions created by this trigger: **${externalActionCount}**\n` +
+          `- Human gate: **Workbench approval remains required**${auditLine}${detail}`,
+      })
+    } catch (error) {
+      addMessage({
+        role: 'assistant',
+        content: `Guardian Review was not triggered. ${error instanceof Error ? error.message : 'Please try again.'}`,
+      })
+    } finally {
+      guardianRunInFlightRef.current = false
+      setIsTyping(false)
+    }
+  }, [addMessage, setIsTyping])
+
+  const cancelGuardianReview = useCallback(() => {
+    setIsGuardianConfirmationOpen(false)
+    addMessage({
+      role: 'assistant',
+      content: 'Guardian Review cancelled. No orchestration run or external action was requested.',
+    })
+  }, [addMessage])
+
+  const handleClearHistory = useCallback(() => {
+    setIsGuardianConfirmationOpen(false)
+    clearHistory()
+  }, [clearHistory])
 
   // Handle quick action click
   const handleQuickAction = (action: string) => {
@@ -258,7 +345,7 @@ export function AIManager() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={clearHistory}
+                        onClick={handleClearHistory}
                         className="text-muted-foreground hover:text-foreground gap-1.5"
                         title="Clear conversation"
                       >
@@ -342,6 +429,34 @@ export function AIManager() {
                   </div>
                 )}
               </div>
+
+              {isGuardianConfirmationOpen && (
+                <div className="relative border-t border-amber-200 bg-amber-50 px-6 py-4">
+                  <p className="text-sm font-semibold text-brand-navy">
+                    Confirm Guardian Review
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    This requests one approval-gated orchestration run. It does not approve a case or create an external action.
+                  </p>
+                  <div className="mt-3 flex justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={cancelGuardianReview}
+                      disabled={isTyping}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={confirmGuardianReview}
+                      disabled={isTyping}
+                    >
+                      Confirm run
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               {/* Input Area */}
               <div className="relative border-t border-border/30">
