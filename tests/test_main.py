@@ -1,5 +1,7 @@
 # tests/test_main.py
 from copy import deepcopy
+import json
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -45,7 +47,7 @@ def _fake_response(payload, status_code=200):
 async def test_integration_registry_never_returns_secret_fragments(monkeypatch):
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "super-secret-value")
-    monkeypatch.setenv("SUPERVITY_WORKFLOW_EXECUTE_URL", "https://workflow.example/execute")
+    monkeypatch.setenv("SUPERVITY_WORKFLOW_EXECUTE_URL", "https://workflow.example/api/v1/workflow-runs/execute/stream")
     monkeypatch.setenv("SUPERVITY_API_KEY", "workflow-secret-value")
     monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-secret-value")
     monkeypatch.setenv("SLACK_CHANNEL_ID", "C123")
@@ -66,7 +68,7 @@ async def test_integration_registry_never_returns_secret_fragments(monkeypatch):
 async def test_live_integration_summary_excludes_csv_fallback(monkeypatch):
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "super-secret-value")
-    monkeypatch.setenv("SUPERVITY_WORKFLOW_EXECUTE_URL", "https://workflow.example/execute")
+    monkeypatch.setenv("SUPERVITY_WORKFLOW_EXECUTE_URL", "https://workflow.example/api/v1/workflow-runs/execute/stream")
     monkeypatch.setenv("SUPERVITY_API_KEY", "workflow-secret-value")
     monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-secret-value")
     monkeypatch.setenv("SLACK_CHANNEL_ID", "C123")
@@ -262,7 +264,7 @@ async def test_approved_decision_is_idempotent(monkeypatch):
 
 async def test_manual_trigger_stages_actions_behind_workbench(monkeypatch):
     """A scan may be live-ready, but it must not notify until approval."""
-    monkeypatch.setenv("SUPERVITY_WORKFLOW_EXECUTE_URL", "https://workflow.example/execute")
+    monkeypatch.setenv("SUPERVITY_WORKFLOW_EXECUTE_URL", "https://workflow.example/api/v1/workflow-runs/execute/stream")
     monkeypatch.setenv("SUPERVITY_API_KEY", "test-supervity-token")
     monkeypatch.delenv("DAY90_SUPERVITY_TRIGGER_ENABLED", raising=False)
     monkeypatch.setattr(day90, "_profile", lambda: {"source": {"available": True}})
@@ -414,8 +416,9 @@ async def test_dataset_coverage_explains_round2_source_breadth():
 
 async def test_manual_trigger_can_call_supervity_with_approval_gated_payload(monkeypatch):
     """When explicitly enabled, the backend calls Auto without bypassing Workbench approval."""
-    monkeypatch.setenv("SUPERVITY_WORKFLOW_EXECUTE_URL", "https://workflow.example/execute")
+    monkeypatch.setenv("SUPERVITY_WORKFLOW_EXECUTE_URL", "https://workflow.example/api/v1/workflow-runs/execute/stream")
     monkeypatch.setenv("SUPERVITY_API_KEY", "test-supervity-token")
+    monkeypatch.setenv("SUPERVITY_ACTIVE_ORG", "alpha")
     monkeypatch.setenv("DAY90_SUPERVITY_TRIGGER_ENABLED", "true")
     monkeypatch.setattr(
         day90,
@@ -449,17 +452,31 @@ async def test_manual_trigger_can_call_supervity_with_approval_gated_payload(mon
     requests = []
 
     class FakeResponse:
-        status_code = 202
-        content = b'{"run_id":"RUN-123","status":"queued"}'
+        status_code = 200
 
-        def json(self):
-            return {"run_id": "RUN-123", "status": "queued"}
+        def __enter__(self):
+            return self
 
-    def fake_post(url, **kwargs):
-        requests.append({"url": url, **kwargs})
+        def __exit__(self, *_args):
+            return False
+
+        def iter_lines(self):
+            return iter(
+                [
+                    "event: workflow-run",
+                    'data: {"content":{"workflowRunId":"RUN-123","status":"running"}}',
+                    "",
+                    "event: result",
+                    'data: {"success":true,"workflowRun":{"id":"RUN-123","status":"completed"}}',
+                    "",
+                ]
+            )
+
+    def fake_stream(method, url, **kwargs):
+        requests.append({"method": method, "url": url, **kwargs})
         return FakeResponse()
 
-    monkeypatch.setattr(day90_integrations.httpx, "post", fake_post)
+    monkeypatch.setattr(day90_integrations.httpx, "stream", fake_stream)
 
     audit_before = deepcopy(day90.AUDIT_TRAIL)
     try:
@@ -469,10 +486,107 @@ async def test_manual_trigger_can_call_supervity_with_approval_gated_payload(mon
         assert result["orchestrator"]["ok"] is True
         assert result["orchestrator"]["executed"] is True
         assert result["orchestrator"]["run_id"] == "RUN-123"
+        assert result["orchestrator"]["status"] == "completed"
+        assert result["status"] == "live_orchestration_started"
         assert len(requests) == 1
+        assert requests[0]["method"] == "POST"
         assert requests[0]["headers"]["Authorization"].startswith("Bearer ")
-        assert requests[0]["json"]["external_actions_allowed"] is False
-        assert requests[0]["json"]["workbench_approval_required"] is True
-        assert requests[0]["json"]["cases"][0]["employee_id"] == "EMP7001"
+        assert requests[0]["headers"]["Accept"] == "text/event-stream"
+        assert requests[0]["headers"]["x-active-org"] == "alpha"
+        assert requests[0]["headers"]["x-source"] == "external"
+        assert requests[0]["files"]["workflowId"] == (
+            None,
+            day90_integrations.DEFAULT_SUPERVITY_WORKFLOW_ID,
+        )
+        request_inputs = json.loads(requests[0]["files"]["inputs"][1])
+        assert request_inputs["run_mode"] == "dry_run"
+        assert request_inputs["external_actions_allowed"] is False
+        assert request_inputs["workbench_approval_required"] is True
+        assert request_inputs["cases"][0]["employee_id"] == "EMP7001"
     finally:
         day90.AUDIT_TRAIL[:] = audit_before
+
+
+async def test_supervity_connector_fails_closed_when_request_is_rejected(monkeypatch):
+    monkeypatch.setenv("SUPERVITY_WORKFLOW_EXECUTE_URL", "https://workflow.example/api/v1/workflow-runs/execute/stream")
+    monkeypatch.setenv("SUPERVITY_API_KEY", "test-supervity-token")
+    monkeypatch.setenv("DAY90_SUPERVITY_TRIGGER_ENABLED", "true")
+
+    class RejectedResponse:
+        status_code = 401
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(day90_integrations.httpx, "stream", lambda *_args, **_kwargs: RejectedResponse())
+
+    result = day90_integrations.execute_supervity_orchestrator({}, [], "R2-TEST")
+
+    assert result["ok"] is False
+    assert result["executed"] is False
+    assert result["status"] == "request_rejected"
+    assert result["status_code"] == 401
+    assert "test-supervity-token" not in str(result)
+
+
+async def test_supervity_connector_requires_verified_run_id(monkeypatch):
+    monkeypatch.setenv("SUPERVITY_WORKFLOW_EXECUTE_URL", "https://workflow.example/api/v1/workflow-runs/execute/stream")
+    monkeypatch.setenv("SUPERVITY_API_KEY", "test-supervity-token")
+    monkeypatch.setenv("DAY90_SUPERVITY_TRIGGER_ENABLED", "true")
+
+    class MissingReceiptResponse:
+        status_code = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def iter_lines(self):
+            return iter(["event: result", 'data: {"success":true}', ""])
+
+    monkeypatch.setattr(day90_integrations.httpx, "stream", lambda *_args, **_kwargs: MissingReceiptResponse())
+
+    result = day90_integrations.execute_supervity_orchestrator({}, [], "R2-TEST")
+
+    assert result["ok"] is False
+    assert result["executed"] is False
+    assert result["status"] == "invalid_response"
+    assert "not verified" in result["detail"]
+
+
+async def test_supervity_connector_reports_streamed_failure(monkeypatch):
+    monkeypatch.setenv("SUPERVITY_WORKFLOW_EXECUTE_URL", "https://workflow.example/api/v1/workflow-runs/execute/stream")
+    monkeypatch.setenv("SUPERVITY_API_KEY", "test-supervity-token")
+    monkeypatch.setenv("DAY90_SUPERVITY_TRIGGER_ENABLED", "true")
+
+    class FailedRunResponse:
+        status_code = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def iter_lines(self):
+            return iter(
+                [
+                    "event: workflow-run",
+                    'data: {"content":{"workflowRunId":"RUN-FAILED","status":"failed"}}',
+                    "",
+                ]
+            )
+
+    monkeypatch.setattr(day90_integrations.httpx, "stream", lambda *_args, **_kwargs: FailedRunResponse())
+
+    result = day90_integrations.execute_supervity_orchestrator({}, [], "R2-TEST")
+
+    assert result["ok"] is False
+    assert result["executed"] is True
+    assert result["run_id"] == "RUN-FAILED"
+    assert result["status"] == "failed"

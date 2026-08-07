@@ -899,13 +899,23 @@ def trigger_run():
             ),
         },
     )
+    orchestration_started = bool(auto_receipt.get("ok") and auto_receipt.get("executed"))
+    if orchestration_started:
+        trigger_status = "live_orchestration_started"
+        trigger_message = "Supervity Auto started the approval-gated Guardian run. External actions still require Workbench approval."
+    elif auto_receipt.get("status") == "configured_not_executed" and live_ready:
+        trigger_status = "ready_for_live_execution"
+        trigger_message = "Command Center trigger captured. Supervity execution remains disabled; review and approve Workbench cases only when ready."
+    elif auto_receipt.get("status") in {"not_configured", "invalid_configuration", "configured_not_executed"}:
+        trigger_status = "queued_for_auto_connection"
+        trigger_message = "Command Center trigger captured, but the live integration set is not ready to execute."
+    else:
+        trigger_status = "orchestration_failed"
+        trigger_message = "Supervity did not confirm a Guardian run. No external action was created."
+
     return {
-        "status": "ready_for_live_execution" if live_ready else "queued_for_auto_connection",
-        "message": (
-            "Command Center trigger captured. Review a Workbench case and approve it to create the masked reviewer action."
-            if live_ready
-            else "Command Center trigger captured. Add Supabase, Supervity, Slack, and Asana keys to execute the final live workflow from backend."
-        ),
+        "status": trigger_status,
+        "message": trigger_message,
         "ready_for_live_demo": live_ready,
         "run_tag": run_tag,
         "orchestrator": auto_receipt,

@@ -1,11 +1,20 @@
 from __future__ import annotations
 
-import os
 import csv
+import json
+import os
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Iterable
 
 import httpx
+
+
+DEFAULT_SUPERVITY_WORKFLOW_ID = "019f7b16-6fc0-7000-923b-f6ebf9317c02"
+DEFAULT_SUPERVITY_ACTIVE_ORG = "alpha"
+SUPERVITY_STREAM_PATH = "/api/v1/workflow-runs/execute/stream"
+SUPERVITY_FAILED_STATUSES = {"failed", "cancelled"}
 
 
 def _configured(*names: str) -> bool:
@@ -15,6 +24,10 @@ def _configured(*names: str) -> bool:
 def _secret_status(name: str) -> str:
     """Return configuration state without exposing any part of a secret."""
     return "configured" if os.getenv(name, "").strip() else "missing"
+
+
+def _is_supervity_stream_url(value: str) -> bool:
+    return value.rstrip("/").endswith(SUPERVITY_STREAM_PATH)
 
 
 def utc_now() -> str:
@@ -54,7 +67,14 @@ def _asana_due_date(route: str) -> str:
 
 def integration_registry(source: dict) -> list[dict]:
     supabase_ready = _configured("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY")
-    supervity_ready = _configured("SUPERVITY_WORKFLOW_EXECUTE_URL", "SUPERVITY_API_KEY")
+    supervity_url = os.getenv("SUPERVITY_WORKFLOW_EXECUTE_URL", "").strip()
+    supervity_workflow_id = os.getenv("SUPERVITY_WORKFLOW_ID", DEFAULT_SUPERVITY_WORKFLOW_ID).strip()
+    supervity_active_org = os.getenv("SUPERVITY_ACTIVE_ORG", DEFAULT_SUPERVITY_ACTIVE_ORG).strip()
+    supervity_ready = (
+        _configured("SUPERVITY_WORKFLOW_EXECUTE_URL", "SUPERVITY_API_KEY")
+        and _is_supervity_stream_url(supervity_url)
+        and bool(supervity_workflow_id and supervity_active_org)
+    )
     slack_ready = _configured("SLACK_BOT_TOKEN", "SLACK_CHANNEL_ID")
     asana_ready = _configured("ASANA_ACCESS_TOKEN", "ASANA_PROJECT_GID")
 
@@ -93,14 +113,16 @@ def integration_registry(source: dict) -> list[dict]:
             "counts_as_live": True,
             "status": "ready" if supervity_ready else "needs_api_key",
             "detail": (
-                "Workflow execute endpoint and API key configured."
+                "Streaming workflow endpoint, workflow ID, organization, and API key configured."
                 if supervity_ready
-                else "Add SUPERVITY_WORKFLOW_EXECUTE_URL and SUPERVITY_API_KEY to trigger the live operator workflow from this app."
+                else "Configure the Supervity streaming endpoint, workflow ID, organization, and API key to trigger Auto from this app."
             ),
             "configured": supervity_ready,
             "safe_config": {
                 "SUPERVITY_WORKFLOW_EXECUTE_URL": "configured" if os.getenv("SUPERVITY_WORKFLOW_EXECUTE_URL") else "missing",
                 "SUPERVITY_API_KEY": _secret_status("SUPERVITY_API_KEY"),
+                "SUPERVITY_WORKFLOW_ID": "configured" if supervity_workflow_id else "missing",
+                "SUPERVITY_ACTIVE_ORG": "configured" if supervity_active_org else "missing",
             },
         },
         {
@@ -176,6 +198,43 @@ def supervity_trigger_enabled() -> bool:
     }
 
 
+def _iter_supervity_sse_events(lines: Iterable[str]) -> Iterable[tuple[str, dict]]:
+    """Parse complete SSE events without retaining streamed reasoning content."""
+    event_name = "message"
+    data_lines: list[str] = []
+
+    for raw_line in lines:
+        line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
+        if line == "":
+            if data_lines:
+                payload = json.loads("\n".join(data_lines))
+                if not isinstance(payload, dict):
+                    raise ValueError("Supervity SSE data must be a JSON object.")
+                yield event_name, payload
+            event_name = "message"
+            data_lines = []
+        elif line.startswith("event:"):
+            event_name = line[6:].strip()
+        elif line.startswith("data:"):
+            data_lines.append(line[5:].lstrip())
+
+    if data_lines:
+        payload = json.loads("\n".join(data_lines))
+        if not isinstance(payload, dict):
+            raise ValueError("Supervity SSE data must be a JSON object.")
+        yield event_name, payload
+
+
+def _supervity_event_receipt(event_name: str, payload: dict) -> tuple[str | None, str | None]:
+    content = payload.get("content") if isinstance(payload.get("content"), dict) else {}
+    workflow_run = payload.get("workflowRun") if isinstance(payload.get("workflowRun"), dict) else {}
+    run_id = content.get("workflowRunId") or workflow_run.get("id") or payload.get("workflowRunId")
+    status = content.get("status") or workflow_run.get("status") or payload.get("status")
+    if event_name == "result" and payload.get("success") is True and not status:
+        status = "completed"
+    return run_id, status
+
+
 def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: str) -> dict:
     """Call the Auto Orchestrator when explicitly enabled.
 
@@ -186,13 +245,24 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
 
     workflow_url = os.getenv("SUPERVITY_WORKFLOW_EXECUTE_URL", "").strip()
     api_key = os.getenv("SUPERVITY_API_KEY", "").strip()
-    if not workflow_url or not api_key:
+    workflow_id = os.getenv("SUPERVITY_WORKFLOW_ID", DEFAULT_SUPERVITY_WORKFLOW_ID).strip()
+    active_org = os.getenv("SUPERVITY_ACTIVE_ORG", DEFAULT_SUPERVITY_ACTIVE_ORG).strip()
+    if not workflow_url or not api_key or not workflow_id or not active_org:
         return {
             "system": "supervity_auto",
             "ok": False,
             "executed": False,
             "status": "not_configured",
-            "detail": "Supervity workflow URL or API key is missing.",
+            "detail": "Supervity endpoint, workflow ID, organization, or API key is missing.",
+        }
+
+    if not _is_supervity_stream_url(workflow_url):
+        return {
+            "system": "supervity_auto",
+            "ok": False,
+            "executed": False,
+            "status": "invalid_configuration",
+            "detail": "Supervity endpoint must use /api/v1/workflow-runs/execute/stream.",
         }
 
     if not supervity_trigger_enabled():
@@ -207,6 +277,7 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
     payload = {
         "source": "day90_command_center",
         "mode": "approval_gated",
+        "run_mode": "dry_run",
         "run_tag": run_tag,
         "batch_id": "R2-BATCH-20260803",
         "policy_profile": "hr-default",
@@ -228,43 +299,120 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
         ],
     }
 
+    request_sent = False
     try:
         timeout_seconds = int(os.getenv("DAY90_SUPERVITY_TIMEOUT_SECONDS", "20"))
-        response = httpx.post(
+        if timeout_seconds < 1:
+            raise ValueError("DAY90_SUPERVITY_TIMEOUT_SECONDS must be a positive integer.")
+
+        headers = {
+            "Accept": "text/event-stream",
+            "Authorization": f"Bearer {api_key}",
+            "x-active-org": active_org,
+            "x-source": "external",
+        }
+        files = {
+            "workflowId": (None, workflow_id),
+            "inputs": (None, json.dumps(payload, separators=(",", ":"))),
+        }
+
+        started_at = time.monotonic()
+        run_id = None
+        status_text = None
+        observed_events: set[str] = set()
+        error_event = False
+        observation_timed_out = False
+
+        request_sent = True
+        with httpx.stream(
+            "POST",
             workflow_url,
-            headers={"Authorization": f"Bearer {api_key}"},
-            json=payload,
+            headers=headers,
+            files=files,
             timeout=timeout_seconds,
-        )
-        response_payload = response.json() if response.content else {}
-        run_id = (
-            response_payload.get("run_id")
-            or response_payload.get("id")
-            or response_payload.get("data", {}).get("id")
-        )
-        status_text = response_payload.get("status") or response_payload.get("state")
+        ) as response:
+            if response.status_code >= 400:
+                return {
+                    "system": "supervity_auto",
+                    "ok": False,
+                    "executed": False,
+                    "request_sent": True,
+                    "status": "request_rejected",
+                    "status_code": response.status_code,
+                    "detail": f"Supervity rejected the workflow request with HTTP {response.status_code}.",
+                }
+
+            for event_name, event_payload in _iter_supervity_sse_events(response.iter_lines()):
+                observed_events.add(event_name)
+                event_run_id, event_status = _supervity_event_receipt(event_name, event_payload)
+                run_id = event_run_id or run_id
+                status_text = event_status or status_text
+                if event_name == "error" or (event_name == "result" and event_payload.get("success") is False):
+                    error_event = True
+                    break
+                if status_text and status_text.lower() in SUPERVITY_FAILED_STATUSES:
+                    error_event = True
+                    break
+                if time.monotonic() - started_at >= timeout_seconds:
+                    observation_timed_out = True
+                    break
+
+            status_code = response.status_code
+
+        if error_event:
+            return {
+                "system": "supervity_auto",
+                "ok": False,
+                "executed": bool(run_id),
+                "request_sent": True,
+                "status": status_text or "failed",
+                "status_code": status_code,
+                "run_id": run_id,
+                "events_observed": sorted(observed_events),
+                "detail": "Supervity reported a workflow execution failure.",
+            }
+
+        if not run_id:
+            return {
+                "system": "supervity_auto",
+                "ok": False,
+                "executed": False,
+                "request_sent": True,
+                "status": "invalid_response",
+                "status_code": status_code,
+                "events_observed": sorted(observed_events),
+                "detail": "Supervity returned no workflow run ID; execution was not verified.",
+            }
+
         return {
             "system": "supervity_auto",
-            "ok": response.status_code < 400,
+            "ok": True,
             "executed": True,
-            "status": status_text or ("accepted" if response.status_code < 400 else "failed"),
-            "status_code": response.status_code,
+            "request_sent": True,
+            "status": status_text or "accepted",
+            "status_code": status_code,
             "run_id": run_id,
-            "detail": (
-                f"Auto Orchestrator accepted run {run_id}."
-                if response.status_code < 400 and run_id
-                else "Auto Orchestrator execution request completed."
-                if response.status_code < 400
-                else f"Auto Orchestrator execution failed with HTTP {response.status_code}."
-            ),
+            "events_observed": sorted(observed_events),
+            "observation_timed_out": observation_timed_out,
+            "detail": f"Auto Orchestrator accepted verified run {run_id}; Workbench approval remains required.",
         }
-    except Exception as exc:  # pragma: no cover - network dependent
+    except (httpx.HTTPError, json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:  # pragma: no cover - network dependent
         return {
             "system": "supervity_auto",
             "ok": False,
-            "executed": True,
-            "status": "error",
-            "detail": str(exc)[:240],
+            "executed": False,
+            "request_sent": request_sent,
+            "status": "connection_error",
+            "detail": f"Supervity connection failed safely ({type(exc).__name__}).",
+        }
+    except Exception as exc:  # pragma: no cover - defensive production boundary
+        return {
+            "system": "supervity_auto",
+            "ok": False,
+            "executed": False,
+            "request_sent": request_sent,
+            "status": "connection_error",
+            "detail": f"Supervity connection failed safely ({type(exc).__name__}).",
         }
 
 
