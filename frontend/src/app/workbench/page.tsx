@@ -30,6 +30,29 @@ type ActionReceipt = {
   detail: string
 }
 
+const actionReceiptUrlPattern = /https?:\/\/\S+/
+
+function getActionReceiptUrl(detail: string) {
+  return detail.match(actionReceiptUrlPattern)?.[0]
+}
+
+function getActionReceiptMessage(action: ActionReceipt) {
+  const system = action.system.toLowerCase()
+  const hasUrl = Boolean(getActionReceiptUrl(action.detail))
+
+  if (action.ok && system.includes('asana') && hasUrl) return 'Task created in Asana.'
+  if (action.ok && system.includes('slack')) return 'Masked Slack notification sent.'
+
+  const cleanedDetail = action.detail.replace(actionReceiptUrlPattern, '').replace(/^ok\s*-?\s*/i, '').trim()
+  if (cleanedDetail) return cleanedDetail
+
+  return action.ok ? 'Action completed.' : 'Action attempted; review integration configuration.'
+}
+
+function getActionReceiptLinkLabel(action: ActionReceipt) {
+  return action.system.toLowerCase().includes('asana') ? 'Open task' : 'Open artifact'
+}
+
 const routeStyles: Record<string, string> = {
   AMBER: 'bg-amber-100 text-amber-800 border-amber-200',
   RED: 'bg-red-100 text-red-800 border-red-200',
@@ -205,12 +228,28 @@ export default function WorkbenchPage() {
                   <p className='text-xs font-semibold uppercase tracking-wide text-emerald-800'>Action receipt</p>
                   <p className='mt-1 text-sm text-emerald-900'>The decision was recorded. These route-safe artifacts were attempted:</p>
                   <div className='mt-3 grid gap-2'>
-                    {actionReceipts.map((action) => (
-                      <div key={`${action.system}-${action.detail}`} className='flex items-start gap-2 text-sm text-emerald-950'>
-                        <Icons.checkCircle className={cn('mt-0.5 h-4 w-4 shrink-0', action.ok ? 'text-emerald-600' : 'text-red-600')} />
-                        <span><strong className='capitalize'>{action.system.replaceAll('_', ' ')}</strong>: {action.detail}</span>
-                      </div>
-                    ))}
+                    {actionReceipts.map((action) => {
+                      const actionUrl = getActionReceiptUrl(action.detail)
+
+                      return (
+                        <div key={`${action.system}-${action.detail}`} className='flex items-start gap-2 text-sm text-emerald-950'>
+                          <Icons.checkCircle className={cn('mt-0.5 h-4 w-4 shrink-0', action.ok ? 'text-emerald-600' : 'text-red-600')} />
+                          <span className='min-w-0 leading-5'>
+                            <strong className='capitalize'>{action.system.replaceAll('_', ' ')}</strong>: {getActionReceiptMessage(action)}
+                            {actionUrl && (
+                              <a
+                                href={actionUrl}
+                                target='_blank'
+                                rel='noreferrer'
+                                className='ml-2 inline-flex font-semibold text-emerald-800 underline underline-offset-2 hover:text-emerald-950'
+                              >
+                                {getActionReceiptLinkLabel(action)}
+                              </a>
+                            )}
+                          </span>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               )}
