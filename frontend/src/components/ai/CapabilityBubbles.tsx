@@ -12,6 +12,7 @@ interface Capability {
 
 const CAPABILITIES: Capability[] = [
   { icon: Icons.zap, label: 'Run Guardian Review', query: 'Run Guardian Review' },
+  { icon: Icons.activity, label: 'Judge proof path', query: 'What should I show judges to prove the live operating flow?' },
   { icon: Icons.helpCircle, label: 'What can you help me with?', query: 'What can you help me with?' },
   { icon: Icons.activity, label: 'Show recent activity', query: 'Show me recent activity' },
   { icon: Icons.fileText, label: 'Generate a report', query: 'Generate a report' },

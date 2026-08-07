@@ -169,6 +169,18 @@ async def test_ai_manager_reports_measured_outcomes_without_attrition_lift(monke
     assert result["tool_calls"][0]["result"]["outcomes"]["retention_lift_claimed"] is False
 
 
+async def test_ai_manager_generic_answer_is_grounded_and_cleanly_encoded(monkeypatch):
+    monkeypatch.setattr(ai, "_safe_day90_context", _fake_day90_ai_context)
+
+    result = ai.chat(ai.ChatRequest(message="What can you help me with?", context={"page": "/workbench"}))
+
+    assert "live Day90 signals" in result["response"]
+    assert "Command Center" in result["response"]
+    assert "Workbench" in result["response"]
+    assert "Iâ" not in result["response"]
+    assert result["tool_calls"][0]["name"] == "summarize_day90_context"
+
+
 async def test_route_aware_reviewer_actions(monkeypatch):
     monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-secret")
     monkeypatch.setenv("SLACK_CHANNEL_ID", "C123")

@@ -175,12 +175,12 @@ def _contextual_response(message: str, page: str, context: dict) -> tuple[str, s
         )
 
     return (
-        f"On `{page}`, I’m reading the live Day90 context.\n\n"
+        f"On `{page}`, I'm reading the live Day90 signals from the Command Center, Workbench, policies, integrations, and audit trail.\n\n"
         f"- Source: **{source.get('kind')}**\n"
         f"- Primary integrations: **{context.get('integrations_ready')}/{context.get('integrations_total')} ready**\n"
         f"- Route counts: **{route_line}**\n"
         f"- Workbench queue: **{metrics.get('workbench_cases', 0)} cases**\n\n"
-        "Ask me about policies, confidential routing, Workbench approvals, integrations, or the live operating path and I’ll answer from these current signals.",
+        "Ask me about policies, confidential routing, Workbench approvals, integrations, or the live operating path and I'll answer from these current signals.",
         "summarize_day90_context",
     )
 
