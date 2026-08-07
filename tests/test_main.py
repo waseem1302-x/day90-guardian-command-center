@@ -498,11 +498,27 @@ async def test_manual_trigger_can_call_supervity_with_approval_gated_payload(mon
             None,
             day90_integrations.DEFAULT_SUPERVITY_WORKFLOW_ID,
         )
-        request_inputs = json.loads(requests[0]["files"]["inputs"][1])
-        assert request_inputs["run_mode"] == "dry_run"
-        assert request_inputs["external_actions_allowed"] is False
-        assert request_inputs["workbench_approval_required"] is True
-        assert request_inputs["cases"][0]["employee_id"] == "EMP7001"
+        request_inputs = {
+            key.removeprefix("inputs[").removesuffix("]"): value[1]
+            for key, value in requests[0]["files"].items()
+            if key.startswith("inputs[")
+        }
+        assert request_inputs == {
+            "As of DateTime": "2026-08-03T12:00:00+08:00",
+            "Scope Type": "all",
+            "Scope Value": "",
+            "Policy Profile": "hr-default",
+            "Policy Version": "1",
+            "Run Mode": "dry_run",
+            "Batch ID": "R2-BATCH-20260803",
+            "Source Batch ID": "R2-BATCH-20260803",
+            "Slack Channel Name": "day90-test",
+            "Asana Project Name": "D90TEST — Day90 Guardian",
+            "Asana Workspace Name": "My Workspace",
+        }
+        assert "inputs" not in requests[0]["files"]
+        assert "cases" not in request_inputs
+        assert "route_counts" not in request_inputs
     finally:
         day90.AUDIT_TRAIL[:] = audit_before
 

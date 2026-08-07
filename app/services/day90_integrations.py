@@ -13,6 +13,14 @@ import httpx
 
 DEFAULT_SUPERVITY_WORKFLOW_ID = "019f7b16-6fc0-7000-923b-f6ebf9317c02"
 DEFAULT_SUPERVITY_ACTIVE_ORG = "alpha"
+DEFAULT_SUPERVITY_RUN_MODE = "dry_run"
+DEFAULT_SUPERVITY_SCOPE_TYPE = "all"
+DEFAULT_SUPERVITY_BATCH_ID = "R2-BATCH-20260803"
+DEFAULT_SUPERVITY_POLICY_PROFILE = "hr-default"
+DEFAULT_SUPERVITY_POLICY_VERSION = 1
+DEFAULT_SUPERVITY_SLACK_CHANNEL_NAME = "day90-test"
+DEFAULT_SUPERVITY_ASANA_PROJECT_NAME = "D90TEST — Day90 Guardian"
+DEFAULT_SUPERVITY_ASANA_WORKSPACE_NAME = "My Workspace"
 SUPERVITY_STREAM_PATH = "/api/v1/workflow-runs/execute/stream"
 SUPERVITY_FAILED_STATUSES = {"failed", "cancelled"}
 
@@ -235,6 +243,30 @@ def _supervity_event_receipt(event_name: str, payload: dict) -> tuple[str | None
     return run_id, status
 
 
+def _supervity_contract_inputs(profile: dict) -> dict:
+    """Build the exact Auto workflow input labels observed from the v12 run."""
+    source = profile.get("source") if isinstance(profile.get("source"), dict) else {}
+    as_of_date = os.getenv("SUPERVITY_AS_OF_DATETIME", "").strip()
+    if not as_of_date:
+        as_of_date = f"{source.get('as_of_date') or '2026-08-03'}T12:00:00+08:00"
+
+    batch_id = os.getenv("SUPERVITY_BATCH_ID", DEFAULT_SUPERVITY_BATCH_ID).strip()
+
+    return {
+        "As of DateTime": as_of_date,
+        "Scope Type": os.getenv("SUPERVITY_SCOPE_TYPE", DEFAULT_SUPERVITY_SCOPE_TYPE).strip(),
+        "Scope Value": os.getenv("SUPERVITY_SCOPE_VALUE", "").strip(),
+        "Policy Profile": os.getenv("SUPERVITY_POLICY_PROFILE", DEFAULT_SUPERVITY_POLICY_PROFILE).strip(),
+        "Policy Version": int(os.getenv("SUPERVITY_POLICY_VERSION", str(DEFAULT_SUPERVITY_POLICY_VERSION)).strip()),
+        "Run Mode": os.getenv("SUPERVITY_RUN_MODE", DEFAULT_SUPERVITY_RUN_MODE).strip(),
+        "Batch ID": batch_id,
+        "Source Batch ID": os.getenv("SUPERVITY_SOURCE_BATCH_ID", batch_id).strip(),
+        "Slack Channel Name": os.getenv("SUPERVITY_SLACK_CHANNEL_NAME", DEFAULT_SUPERVITY_SLACK_CHANNEL_NAME).strip(),
+        "Asana Project Name": os.getenv("SUPERVITY_ASANA_PROJECT_NAME", DEFAULT_SUPERVITY_ASANA_PROJECT_NAME).strip(),
+        "Asana Workspace Name": os.getenv("SUPERVITY_ASANA_WORKSPACE_NAME", DEFAULT_SUPERVITY_ASANA_WORKSPACE_NAME).strip(),
+    }
+
+
 def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: str) -> dict:
     """Call the Auto Orchestrator when explicitly enabled.
 
@@ -274,30 +306,7 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
             "detail": "Supervity is configured; execution is disabled by DAY90_SUPERVITY_TRIGGER_ENABLED.",
         }
 
-    payload = {
-        "source": "day90_command_center",
-        "mode": "approval_gated",
-        "run_mode": "dry_run",
-        "run_tag": run_tag,
-        "batch_id": "R2-BATCH-20260803",
-        "policy_profile": "hr-default",
-        "policy_version": 1,
-        "external_actions_allowed": False,
-        "workbench_approval_required": True,
-        "route_counts": profile.get("route_counts", {}),
-        "case_count": len(cases),
-        "cases": [
-            {
-                "case_id": case.get("id"),
-                "case_key": case.get("case_key"),
-                "employee_id": case.get("employee_id"),
-                "route": case.get("route"),
-                "risk_band": case.get("risk_band"),
-                "status": case.get("status"),
-            }
-            for case in cases[:12]
-        ],
-    }
+    workflow_inputs = _supervity_contract_inputs(profile)
 
     request_sent = False
     try:
@@ -311,10 +320,9 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
             "x-active-org": active_org,
             "x-source": "external",
         }
-        files = {
-            "workflowId": (None, workflow_id),
-            "inputs": (None, json.dumps(payload, separators=(",", ":"))),
-        }
+        files = {"workflowId": (None, workflow_id)}
+        for key, value in workflow_inputs.items():
+            files[f"inputs[{key}]"] = (None, str(value))
 
         started_at = time.monotonic()
         run_id = None
