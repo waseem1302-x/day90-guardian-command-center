@@ -204,6 +204,21 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
+      <Card className='border-amber-200 bg-amber-50'>
+        <CardContent className='grid gap-3 p-4 lg:grid-cols-[220px_1fr] lg:items-center'>
+          <div>
+            <p className='text-xs font-semibold uppercase tracking-wide text-amber-700'>Runtime state boundary</p>
+            <p className='mt-1 text-2xl font-bold text-amber-950'>Transparent demo state</p>
+          </div>
+          <div className='text-sm leading-6 text-amber-900'>
+            <p>Supabase is the source of record for Round 2 HR source records. Workbench decisions, policy edits, action receipts, and Day90 audit entries are retained in the current backend runtime for this demo.</p>
+            <p className='mt-1 text-xs font-semibold text-amber-800'>
+              If the backend redeploys or restarts, runtime review state can reset; source records remain recoverable through Supabase and the controlled CSV fallback.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className='grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-5'>
         {(dashboard?.integrations ?? []).map((integration) => (
           <Card key={integration.name} className='min-w-0'>

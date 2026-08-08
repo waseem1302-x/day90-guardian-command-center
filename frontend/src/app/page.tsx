@@ -260,7 +260,7 @@ export default function HomePage() {
           <div className='max-w-4xl'>
             <div className='flex flex-wrap items-center gap-2'>
               <span className='rounded-full bg-brand-navy px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white'>Live HR control plane</span>
-              <span className='rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700'>Supabase system of record</span>
+              <span className='rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700'>Supabase source records</span>
               <span className='rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700'>{liveReadyCount}/{liveTotalCount} live integrations</span>
               <span className='rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700'>{fallbackReadyCount}/{fallbackTotalCount} fallback ready</span>
             </div>

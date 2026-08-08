@@ -307,7 +307,7 @@ def _contextual_response(message: str, page: str, context: dict, history: list[d
         return (
             "Recent Day90 activity is available from the audit trail.\n\n"
             f"- Latest events: {_audit_summary(context)}\n"
-            "- Guardian run receipts and Workbench decisions are recorded as audit events without exposing secrets.",
+            "- Guardian run receipts and Workbench decisions are recorded in the current runtime audit trail without exposing secrets.",
             "summarize_recent_activity",
         )
 
