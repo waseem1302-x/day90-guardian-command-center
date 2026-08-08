@@ -65,6 +65,10 @@ OPERATORS = [
 ]
 
 
+POLICY_PROFILE = "hr-default"
+POLICY_VERSION = 1
+
+
 POLICIES = [
     {
         "id": "policy-confidential-isolation",
@@ -371,6 +375,28 @@ def _route_case_with_policies(case: dict) -> str:
     return "GREEN"
 
 
+def _policy_snapshot() -> dict:
+    active_policies = [policy for policy in POLICIES if policy.get("is_active")]
+    return {
+        "profile": POLICY_PROFILE,
+        "version": POLICY_VERSION,
+        "active_policy_count": len(active_policies),
+        "evaluated_before_action": True,
+        "confidential_route_locked": True,
+        "policies": [
+            {
+                "id": policy["id"],
+                "name": policy["name"],
+                "active": bool(policy.get("is_active")),
+                "route": policy["route"],
+                "threshold": policy["threshold"],
+                "owner": policy["owner"],
+            }
+            for policy in POLICIES
+        ],
+    }
+
+
 def _apply_policy_routing(profile: dict) -> dict:
     routed = deepcopy(profile)
     route_counts: Counter[str] = Counter()
@@ -388,11 +414,13 @@ def _apply_policy_routing(profile: dict) -> dict:
         "DATA_QUALITY": route_counts["DATA_QUALITY"],
     }
     routed["policy_effect"] = {
-        "profile": "hr-default",
-        "version": 1,
+        "profile": POLICY_PROFILE,
+        "version": POLICY_VERSION,
+        "active_policy_count": sum(1 for policy in POLICIES if policy.get("is_active")),
         "editable_routes_applied": True,
         "confidential_route_locked": True,
     }
+    routed["policy_snapshot"] = _policy_snapshot()
     return routed
 
 
@@ -882,6 +910,12 @@ def trigger_run():
     cases = _workbench_cases_from_profile(profile)
     run_tag = f"R2-LIVE-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
     auto_receipt = execute_supervity_orchestrator(profile, cases, run_tag)
+    policy_snapshot = auto_receipt.get("policy_snapshot") or profile.get("policy_snapshot") or {}
+    policy_proof = (
+        f" Policy snapshot {policy_snapshot.get('profile', POLICY_PROFILE)} v{policy_snapshot.get('version', POLICY_VERSION)} "
+        f"with {policy_snapshot.get('active_policy_count', 0)} active policies "
+        f"{'sent to Auto' if auto_receipt.get('policy_snapshot_sent') else 'prepared'}."
+    )
     if auto_receipt.get("status") != "not_configured":
         AUDIT_TRAIL.insert(
             0,
@@ -889,7 +923,7 @@ def trigger_run():
                 "time": timestamp,
                 "event": "Auto orchestration proof",
                 "actor": "Day90 Guardian Orchestrator",
-                "detail": str(auto_receipt.get("detail", ""))[:240],
+                "detail": (str(auto_receipt.get("detail", "")) + policy_proof)[:240],
             },
         )
     AUDIT_TRAIL.insert(

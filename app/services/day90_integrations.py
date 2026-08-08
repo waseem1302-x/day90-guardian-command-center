@@ -206,6 +206,15 @@ def supervity_trigger_enabled() -> bool:
     }
 
 
+def supervity_policy_snapshot_input_enabled() -> bool:
+    return os.getenv("DAY90_SUPERVITY_POLICY_SNAPSHOT_INPUT_ENABLED", "true").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def _iter_supervity_sse_events(lines: Iterable[str]) -> Iterable[tuple[str, dict]]:
     """Parse complete SSE events without retaining streamed reasoning content."""
     event_name = "message"
@@ -246,18 +255,19 @@ def _supervity_event_receipt(event_name: str, payload: dict) -> tuple[str | None
 def _supervity_contract_inputs(profile: dict) -> dict:
     """Build the exact Auto workflow input names observed from the v12 workflow metadata."""
     source = profile.get("source") if isinstance(profile.get("source"), dict) else {}
+    policy_snapshot = profile.get("policy_snapshot") if isinstance(profile.get("policy_snapshot"), dict) else None
     as_of_date = os.getenv("SUPERVITY_AS_OF_DATETIME", "").strip()
     if not as_of_date:
         as_of_date = f"{source.get('as_of_date') or '2026-08-03'}T12:00:00+08:00"
 
     batch_id = os.getenv("SUPERVITY_BATCH_ID", DEFAULT_SUPERVITY_BATCH_ID).strip()
 
-    return {
+    inputs = {
         "as_of_datetime": as_of_date,
         "scope_type": os.getenv("SUPERVITY_SCOPE_TYPE", DEFAULT_SUPERVITY_SCOPE_TYPE).strip(),
         "scope_value": os.getenv("SUPERVITY_SCOPE_VALUE", "").strip(),
-        "policy_profile": os.getenv("SUPERVITY_POLICY_PROFILE", DEFAULT_SUPERVITY_POLICY_PROFILE).strip(),
-        "policy_version": int(os.getenv("SUPERVITY_POLICY_VERSION", str(DEFAULT_SUPERVITY_POLICY_VERSION)).strip()),
+        "policy_profile": str(policy_snapshot.get("profile") if policy_snapshot else "") or os.getenv("SUPERVITY_POLICY_PROFILE", DEFAULT_SUPERVITY_POLICY_PROFILE).strip(),
+        "policy_version": int(policy_snapshot.get("version") if policy_snapshot else os.getenv("SUPERVITY_POLICY_VERSION", str(DEFAULT_SUPERVITY_POLICY_VERSION)).strip()),
         "run_mode": os.getenv("SUPERVITY_RUN_MODE", DEFAULT_SUPERVITY_RUN_MODE).strip(),
         "batch_id": batch_id,
         "source_batch_id": os.getenv("SUPERVITY_SOURCE_BATCH_ID", batch_id).strip(),
@@ -265,6 +275,9 @@ def _supervity_contract_inputs(profile: dict) -> dict:
         "asana_project_name": os.getenv("SUPERVITY_ASANA_PROJECT_NAME", DEFAULT_SUPERVITY_ASANA_PROJECT_NAME).strip(),
         "asana_workspace_name": os.getenv("SUPERVITY_ASANA_WORKSPACE_NAME", DEFAULT_SUPERVITY_ASANA_WORKSPACE_NAME).strip(),
     }
+    if policy_snapshot and supervity_policy_snapshot_input_enabled():
+        inputs["policy_snapshot"] = json.dumps(policy_snapshot, sort_keys=True, separators=(",", ":"))
+    return inputs
 
 
 def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: str) -> dict:
@@ -279,6 +292,7 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
     api_key = os.getenv("SUPERVITY_API_KEY", "").strip()
     workflow_id = os.getenv("SUPERVITY_WORKFLOW_ID", DEFAULT_SUPERVITY_WORKFLOW_ID).strip()
     active_org = os.getenv("SUPERVITY_ACTIVE_ORG", DEFAULT_SUPERVITY_ACTIVE_ORG).strip()
+    policy_snapshot = profile.get("policy_snapshot") if isinstance(profile.get("policy_snapshot"), dict) else None
     if not workflow_url or not api_key or not workflow_id:
         return {
             "system": "supervity_auto",
@@ -286,6 +300,8 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
             "executed": False,
             "status": "not_configured",
             "workflow_id": workflow_id or None,
+            "policy_snapshot": policy_snapshot,
+            "policy_snapshot_sent": False,
             "detail": "Supervity endpoint, workflow ID, or API key is missing.",
         }
 
@@ -296,6 +312,8 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
             "executed": False,
             "status": "invalid_configuration",
             "workflow_id": workflow_id,
+            "policy_snapshot": policy_snapshot,
+            "policy_snapshot_sent": False,
             "detail": "Supervity endpoint must use /api/v1/workflow-runs/execute/stream.",
         }
 
@@ -306,10 +324,13 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
             "executed": False,
             "status": "configured_not_executed",
             "workflow_id": workflow_id,
+            "policy_snapshot": policy_snapshot,
+            "policy_snapshot_sent": False,
             "detail": "Supervity is configured; execution is disabled by DAY90_SUPERVITY_TRIGGER_ENABLED.",
         }
 
     workflow_inputs = _supervity_contract_inputs(profile)
+    policy_snapshot_sent = "policy_snapshot" in workflow_inputs
 
     request_sent = False
     try:
@@ -353,6 +374,8 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
                     "status": "request_rejected",
                     "workflow_id": workflow_id,
                     "status_code": response.status_code,
+                    "policy_snapshot": policy_snapshot,
+                    "policy_snapshot_sent": policy_snapshot_sent,
                     "detail": f"Supervity rejected the workflow request with HTTP {response.status_code}.",
                 }
 
@@ -384,6 +407,8 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
                 "status_code": status_code,
                 "run_id": run_id,
                 "events_observed": sorted(observed_events),
+                "policy_snapshot": policy_snapshot,
+                "policy_snapshot_sent": policy_snapshot_sent,
                 "detail": "Supervity reported a workflow execution failure.",
             }
 
@@ -397,6 +422,8 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
                 "workflow_id": workflow_id,
                 "status_code": status_code,
                 "events_observed": sorted(observed_events),
+                "policy_snapshot": policy_snapshot,
+                "policy_snapshot_sent": policy_snapshot_sent,
                 "detail": "Supervity returned no workflow run ID; execution was not verified.",
             }
 
@@ -411,6 +438,8 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
             "run_id": run_id,
             "events_observed": sorted(observed_events),
             "observation_timed_out": observation_timed_out,
+            "policy_snapshot": policy_snapshot,
+            "policy_snapshot_sent": policy_snapshot_sent,
             "detail": f"Auto Orchestrator accepted verified run {run_id}; Workbench approval remains required.",
         }
     except (httpx.HTTPError, json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:  # pragma: no cover - network dependent
@@ -421,6 +450,8 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
             "request_sent": request_sent,
             "status": "connection_error",
             "workflow_id": workflow_id,
+            "policy_snapshot": policy_snapshot,
+            "policy_snapshot_sent": policy_snapshot_sent,
             "detail": f"Supervity connection failed safely ({type(exc).__name__}).",
         }
     except Exception as exc:  # pragma: no cover - defensive production boundary
@@ -431,6 +462,8 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
             "request_sent": request_sent,
             "status": "connection_error",
             "workflow_id": workflow_id,
+            "policy_snapshot": policy_snapshot,
+            "policy_snapshot_sent": policy_snapshot_sent,
             "detail": f"Supervity connection failed safely ({type(exc).__name__}).",
         }
 

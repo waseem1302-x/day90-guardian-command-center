@@ -590,6 +590,31 @@ async def test_manual_trigger_can_call_supervity_with_approval_gated_payload(mon
         lambda: {
             "source": {"available": True},
             "route_counts": {"GREEN": 1, "AMBER": 1, "RED": 0, "CONFIDENTIAL": 0, "DATA_QUALITY": 0},
+            "policy_snapshot": {
+                "profile": "hr-default",
+                "version": 1,
+                "active_policy_count": 4,
+                "evaluated_before_action": True,
+                "confidential_route_locked": True,
+                "policies": [
+                    {
+                        "id": "policy-red-compliance",
+                        "name": "Red Compliance and Payroll Gate",
+                        "active": True,
+                        "route": "RED",
+                        "threshold": "compliance_overdue >= 1 OR payroll_error = true OR severity_score >= 85",
+                        "owner": "HR operations lead",
+                    },
+                    {
+                        "id": "policy-amber-manager-nudge",
+                        "name": "Amber Manager Nudge",
+                        "active": True,
+                        "route": "AMBER",
+                        "threshold": "35 <= risk_score < 85 AND confidential_flag = false",
+                        "owner": "HR business partner",
+                    },
+                ],
+            },
         },
     )
     monkeypatch.setattr(
@@ -654,6 +679,8 @@ async def test_manual_trigger_can_call_supervity_with_approval_gated_payload(mon
         assert result["orchestrator"]["workflow_id"] == day90_integrations.DEFAULT_SUPERVITY_WORKFLOW_ID
         assert result["orchestrator"]["status_code"] == 200
         assert result["orchestrator"]["events_observed"] == ["result", "workflow-run"]
+        assert result["orchestrator"]["policy_snapshot_sent"] is True
+        assert result["orchestrator"]["policy_snapshot"]["active_policy_count"] == 4
         assert result["status"] == "live_orchestration_started"
         assert len(requests) == 1
         assert requests[0]["method"] == "POST"
@@ -670,6 +697,14 @@ async def test_manual_trigger_can_call_supervity_with_approval_gated_payload(mon
             for key, value in requests[0]["files"].items()
             if key.startswith("inputs[")
         }
+        policy_snapshot = json.loads(request_inputs.pop("policy_snapshot"))
+        assert policy_snapshot["profile"] == "hr-default"
+        assert policy_snapshot["version"] == 1
+        assert policy_snapshot["active_policy_count"] == 4
+        assert policy_snapshot["evaluated_before_action"] is True
+        assert policy_snapshot["confidential_route_locked"] is True
+        assert {policy["route"] for policy in policy_snapshot["policies"]} == {"AMBER", "RED"}
+        assert "severity_score >= 85" in policy_snapshot["policies"][0]["threshold"]
         assert request_inputs == {
             "as_of_datetime": "2026-08-03T12:00:00+08:00",
             "scope_type": "all",
@@ -728,6 +763,26 @@ async def test_supervity_connector_sends_active_org_only_when_configured(monkeyp
     assert result["run_id"] == "RUN-ORG"
     assert result["workflow_id"] == day90_integrations.DEFAULT_SUPERVITY_WORKFLOW_ID
     assert requests[0]["headers"]["x-active-org"] == "alpha"
+
+
+async def test_supervity_policy_snapshot_input_can_be_disabled(monkeypatch):
+    monkeypatch.setenv("DAY90_SUPERVITY_POLICY_SNAPSHOT_INPUT_ENABLED", "false")
+
+    inputs = day90_integrations._supervity_contract_inputs(
+        {
+            "source": {"as_of_date": "2026-08-03"},
+            "policy_snapshot": {
+                "profile": "hr-default",
+                "version": 7,
+                "active_policy_count": 4,
+                "policies": [],
+            },
+        }
+    )
+
+    assert inputs["policy_profile"] == "hr-default"
+    assert inputs["policy_version"] == 7
+    assert "policy_snapshot" not in inputs
 
 
 async def test_supervity_connector_fails_closed_when_request_is_rejected(monkeypatch):

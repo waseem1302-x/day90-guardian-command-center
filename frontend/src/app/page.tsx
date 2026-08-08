@@ -81,6 +81,19 @@ type GuardianRunResponse = {
     run_id?: string | null
     status_code?: number
     events_observed?: string[]
+    policy_snapshot_sent?: boolean
+    policy_snapshot?: {
+      profile?: string
+      version?: number
+      active_policy_count?: number
+      confidential_route_locked?: boolean
+      policies?: {
+        name?: string
+        route?: string
+        threshold?: string
+        active?: boolean
+      }[]
+    }
     detail?: string
   }
   external_actions?: unknown[]
@@ -153,6 +166,11 @@ function DashboardRunReceipt({
   onClear: () => void
 }) {
   const externalActionCount = receipt?.external_actions?.length ?? 0
+  const policySnapshot = receipt?.orchestrator?.policy_snapshot
+  const activePolicyRoutes = policySnapshot?.policies
+    ?.filter((policy) => policy.active)
+    .map((policy) => `${policy.route}: ${policy.name}`)
+    .join('; ')
   const receiptRows = receipt
     ? [
         ['Run tag', receipt.run_tag],
@@ -162,6 +180,10 @@ function DashboardRunReceipt({
         ['Supervity workflow ID', receipt.orchestrator?.workflow_id],
         ['Supervity HTTP status', typeof receipt.orchestrator?.status_code === 'number' ? String(receipt.orchestrator.status_code) : undefined],
         ['Stream events observed', receipt.orchestrator?.events_observed?.join(', ')],
+        ['Policy snapshot sent', receipt.orchestrator?.policy_snapshot_sent ? 'Yes - included in Supervity trigger input' : policySnapshot ? 'Prepared - not included in Supervity input' : undefined],
+        ['Policy profile', policySnapshot ? `${policySnapshot.profile ?? 'policy'} v${policySnapshot.version ?? 'not reported'} (${policySnapshot.active_policy_count ?? 0} active policies)` : undefined],
+        ['Policy safety lock', policySnapshot?.confidential_route_locked ? 'Confidential route locked fail-closed' : undefined],
+        ['Active policy routes', activePolicyRoutes],
         ['External actions created', String(externalActionCount)],
         ['Workbench gate', 'Approval remains required'],
         ['Audit event', receipt.audit?.event],
