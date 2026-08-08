@@ -12,12 +12,13 @@ interface Capability {
 
 const CAPABILITIES: Capability[] = [
   { icon: Icons.zap, label: 'Run Guardian Review', query: 'Run Guardian Review' },
-  { icon: Icons.activity, label: 'Judge proof path', query: 'What should I show judges to prove the live operating flow?' },
-  { icon: Icons.helpCircle, label: 'What can you help me with?', query: 'What can you help me with?' },
-  { icon: Icons.activity, label: 'Show recent activity', query: 'Show me recent activity' },
-  { icon: Icons.fileText, label: 'Generate a report', query: 'Generate a report' },
-  { icon: Icons.brain, label: 'Create a policy', query: 'Help me create a new policy' },
-  { icon: Icons.lightbulb, label: 'Show insights', query: 'Show me AI insights' },
+  { icon: Icons.activity, label: 'Show readiness proof', query: 'Show me the live operating proof path' },
+  { icon: Icons.helpCircle, label: 'What can you help with?', query: 'What can you help me with?' },
+  { icon: Icons.users, label: 'Summarize Workbench', query: 'Summarize the Workbench queue and human approval gate' },
+  { icon: Icons.brain, label: 'Explain policy gates', query: 'Explain current policy gates and routing thresholds' },
+  { icon: Icons.lightbulb, label: 'Summarize outcomes', query: 'Summarize outcome measurement and retention risk signals' },
+  { icon: Icons.shield, label: 'Check privacy controls', query: 'Explain confidential routing and privacy controls' },
+  { icon: Icons.activity, label: 'Check integrations', query: 'Summarize connected systems, Supervity, Supabase, Slack, and Asana status' },
   { icon: Icons.info, label: 'Explain this page', query: 'Explain this page to me' },
 ]
 
