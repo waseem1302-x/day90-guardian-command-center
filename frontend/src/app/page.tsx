@@ -141,38 +141,80 @@ function statusLabel(value?: string) {
   return value?.replaceAll('_', ' ') ?? 'not reported'
 }
 
-function DashboardRunReceipt({ receipt }: { receipt: GuardianRunResponse }) {
-  const externalActionCount = receipt.external_actions?.length ?? 0
-  const receiptRows = [
-    ['Run tag', receipt.run_tag],
-    ['Command Center status', statusLabel(receipt.status)],
-    ['Auto status', statusLabel(receipt.orchestrator?.status)],
-    ['Auto run ID', receipt.orchestrator?.run_id],
-    ['Supervity workflow ID', receipt.orchestrator?.workflow_id],
-    ['Supervity HTTP status', typeof receipt.orchestrator?.status_code === 'number' ? String(receipt.orchestrator.status_code) : undefined],
-    ['Stream events observed', receipt.orchestrator?.events_observed?.join(', ')],
-    ['External actions created', String(externalActionCount)],
-    ['Workbench gate', 'Approval remains required'],
-    ['Audit event', receipt.audit?.event],
-  ].filter((row): row is [string, string] => Boolean(row[1]))
+function DashboardRunReceipt({
+  receipt,
+  latestAutoProof,
+  latestTrigger,
+  onClear,
+}: {
+  receipt: GuardianRunResponse | null
+  latestAutoProof?: AuditEvent
+  latestTrigger?: AuditEvent
+  onClear: () => void
+}) {
+  const externalActionCount = receipt?.external_actions?.length ?? 0
+  const receiptRows = receipt
+    ? [
+        ['Run tag', receipt.run_tag],
+        ['Command Center status', statusLabel(receipt.status)],
+        ['Auto status', statusLabel(receipt.orchestrator?.status)],
+        ['Auto run ID', receipt.orchestrator?.run_id],
+        ['Supervity workflow ID', receipt.orchestrator?.workflow_id],
+        ['Supervity HTTP status', typeof receipt.orchestrator?.status_code === 'number' ? String(receipt.orchestrator.status_code) : undefined],
+        ['Stream events observed', receipt.orchestrator?.events_observed?.join(', ')],
+        ['External actions created', String(externalActionCount)],
+        ['Workbench gate', 'Approval remains required'],
+        ['Audit event', receipt.audit?.event],
+      ].filter((row): row is [string, string] => Boolean(row[1]))
+    : []
 
   return (
-    <div className='rounded-2xl border border-brand-cornflower/20 bg-white/85 p-3 text-left shadow-sm' role='status'>
-      <p className='text-xs font-bold uppercase tracking-[0.16em] text-brand-cornflower'>Guardian run receipt</p>
-      <p className='mt-1 text-xs leading-5 text-brand-navy'>{receipt.message ?? 'Guardian Review trigger captured.'}</p>
-      <dl className='mt-3 space-y-2'>
-        {receiptRows.map(([label, value]) => (
-          <div key={label} className='grid gap-1 rounded-xl bg-brand-navy/5 px-3 py-2 sm:grid-cols-[135px_1fr]'>
-            <dt className='text-[11px] font-semibold uppercase tracking-wide text-muted-foreground'>{label}</dt>
-            <dd className='break-words font-mono text-[11px] leading-5 text-brand-navy'>{value}</dd>
+    <div className='flex h-[270px] flex-col rounded-2xl border border-brand-cornflower/20 bg-white/85 p-3 text-left shadow-sm' role='status'>
+      <div className='flex items-start justify-between gap-3'>
+        <div>
+          <p className='text-xs font-bold uppercase tracking-[0.16em] text-brand-cornflower'>Last Guardian Run</p>
+          <p className='mt-1 text-xs leading-5 text-muted-foreground'>Supervity receipt and Workbench gate status stay contained here.</p>
+        </div>
+        {receipt && (
+          <button
+            type='button'
+            className='rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-muted-foreground transition hover:border-brand-cornflower/40 hover:text-brand-navy'
+            onClick={onClear}
+          >
+            Clear
+          </button>
+        )}
+      </div>
+      <div className='mt-3 min-h-0 flex-1 overflow-y-auto pr-1'>
+        {receipt ? (
+          <>
+            <p className='text-xs leading-5 text-brand-navy'>{receipt.message ?? 'Guardian Review trigger captured.'}</p>
+            <dl className='mt-3 space-y-2'>
+              {receiptRows.map(([label, value]) => (
+                <div key={label} className='grid gap-1 rounded-xl bg-brand-navy/5 px-3 py-2 sm:grid-cols-[135px_1fr]'>
+                  <dt className='text-[11px] font-semibold uppercase tracking-wide text-muted-foreground'>{label}</dt>
+                  <dd className='break-words font-mono text-[11px] leading-5 text-brand-navy'>{value}</dd>
+                </div>
+              ))}
+            </dl>
+            {receipt.orchestrator?.detail && (
+              <p className='mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800'>
+                {receipt.orchestrator.detail}
+              </p>
+            )}
+          </>
+        ) : (
+          <div className='rounded-xl bg-brand-navy/5 px-3 py-3 text-xs leading-5 text-brand-navy'>
+            <p className='font-semibold'>No live run receipt in this browser session yet.</p>
+            <p className='mt-1 text-muted-foreground'>Run Guardian Review and the latest Supervity run ID, workflow ID, status, audit event, and Workbench gate will appear in this fixed panel.</p>
+            {(latestAutoProof ?? latestTrigger) && (
+              <p className='mt-3 border-t border-brand-cornflower/10 pt-3 text-muted-foreground'>
+                Latest dashboard audit: {(latestAutoProof ?? latestTrigger)?.detail}
+              </p>
+            )}
           </div>
-        ))}
-      </dl>
-      {receipt.orchestrator?.detail && (
-        <p className='mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800'>
-          {receipt.orchestrator.detail}
-        </p>
-      )}
+        )}
+      </div>
     </div>
   )
 }
@@ -260,7 +302,7 @@ export default function HomePage() {
           <div className='max-w-4xl'>
             <div className='flex flex-wrap items-center gap-2'>
               <span className='rounded-full bg-brand-navy px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white'>Live HR control plane</span>
-              <span className='rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700'>Supabase source records</span>
+              <span className='rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700'>Supabase system of record</span>
               <span className='rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700'>{liveReadyCount}/{liveTotalCount} live integrations</span>
               <span className='rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700'>{fallbackReadyCount}/{fallbackTotalCount} fallback ready</span>
             </div>
@@ -269,14 +311,16 @@ export default function HomePage() {
               A governed AI employee for People Ops teams: it monitors new-hire readiness, access gaps, compliance misses, payroll exceptions, and engagement signals before they turn into retention risk.
             </p>
           </div>
-          <div className='flex w-full shrink-0 flex-col gap-2 rounded-2xl border border-white/70 bg-white/70 p-3 shadow-sm backdrop-blur xl:w-[430px]'>
-            <Button variant='gradient' className='h-12 min-w-72 justify-center rounded-2xl text-sm font-semibold' onClick={triggerRun} disabled={isTriggering}>
-              {isTriggering ? <Icons.loader className='mr-2 h-4 w-4 animate-spin' /> : <Icons.zap className='mr-2 h-4 w-4' />}
-              Run Guardian Review
-            </Button>
-            <p className='text-center text-[11px] font-medium text-muted-foreground'>Creates a privacy-safe escalation with auditable evidence.</p>
-            {runNotice && <p className='max-w-72 rounded-lg bg-brand-navy/5 px-3 py-2 text-center text-xs leading-5 text-brand-navy' role='status'>{runNotice}</p>}
-            {runReceipt && <DashboardRunReceipt receipt={runReceipt} />}
+          <div className='flex w-full shrink-0 flex-col gap-3 xl:w-[460px]'>
+            <div className='rounded-2xl border border-white/70 bg-white/70 p-3 shadow-sm backdrop-blur'>
+              <Button variant='gradient' className='h-12 w-full justify-center rounded-2xl text-sm font-semibold' onClick={triggerRun} disabled={isTriggering}>
+                {isTriggering ? <Icons.loader className='mr-2 h-4 w-4 animate-spin' /> : <Icons.zap className='mr-2 h-4 w-4' />}
+                Run Guardian Review
+              </Button>
+              <p className='mt-2 text-center text-[11px] font-medium text-muted-foreground'>Creates a privacy-safe escalation with auditable evidence.</p>
+              {runNotice && <p className='mt-2 rounded-lg bg-brand-navy/5 px-3 py-2 text-center text-xs leading-5 text-brand-navy' role='status'>{runNotice}</p>}
+            </div>
+            <DashboardRunReceipt receipt={runReceipt} latestAutoProof={latestAutoProof} latestTrigger={latestTrigger} onClear={() => setRunReceipt(null)} />
           </div>
         </div>
       </section>

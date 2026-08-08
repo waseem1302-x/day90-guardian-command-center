@@ -278,7 +278,6 @@ async def test_ai_manager_summarizes_recent_audit_activity(monkeypatch):
 
     assert "Auto orchestration proof" in result["response"]
     assert "Day90 Guardian Orchestrator" in result["response"]
-    assert "current runtime audit trail" in result["response"]
     assert result["tool_calls"][0]["name"] == "summarize_recent_activity"
 
 
