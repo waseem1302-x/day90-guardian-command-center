@@ -285,6 +285,7 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
             "ok": False,
             "executed": False,
             "status": "not_configured",
+            "workflow_id": workflow_id or None,
             "detail": "Supervity endpoint, workflow ID, or API key is missing.",
         }
 
@@ -294,6 +295,7 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
             "ok": False,
             "executed": False,
             "status": "invalid_configuration",
+            "workflow_id": workflow_id,
             "detail": "Supervity endpoint must use /api/v1/workflow-runs/execute/stream.",
         }
 
@@ -303,6 +305,7 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
             "ok": True,
             "executed": False,
             "status": "configured_not_executed",
+            "workflow_id": workflow_id,
             "detail": "Supervity is configured; execution is disabled by DAY90_SUPERVITY_TRIGGER_ENABLED.",
         }
 
@@ -348,6 +351,7 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
                     "executed": False,
                     "request_sent": True,
                     "status": "request_rejected",
+                    "workflow_id": workflow_id,
                     "status_code": response.status_code,
                     "detail": f"Supervity rejected the workflow request with HTTP {response.status_code}.",
                 }
@@ -376,6 +380,7 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
                 "executed": bool(run_id),
                 "request_sent": True,
                 "status": status_text or "failed",
+                "workflow_id": workflow_id,
                 "status_code": status_code,
                 "run_id": run_id,
                 "events_observed": sorted(observed_events),
@@ -389,6 +394,7 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
                 "executed": False,
                 "request_sent": True,
                 "status": "invalid_response",
+                "workflow_id": workflow_id,
                 "status_code": status_code,
                 "events_observed": sorted(observed_events),
                 "detail": "Supervity returned no workflow run ID; execution was not verified.",
@@ -400,6 +406,7 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
             "executed": True,
             "request_sent": True,
             "status": status_text or "accepted",
+            "workflow_id": workflow_id,
             "status_code": status_code,
             "run_id": run_id,
             "events_observed": sorted(observed_events),
@@ -413,6 +420,7 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
             "executed": False,
             "request_sent": request_sent,
             "status": "connection_error",
+            "workflow_id": workflow_id,
             "detail": f"Supervity connection failed safely ({type(exc).__name__}).",
         }
     except Exception as exc:  # pragma: no cover - defensive production boundary
@@ -422,6 +430,7 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
             "executed": False,
             "request_sent": request_sent,
             "status": "connection_error",
+            "workflow_id": workflow_id,
             "detail": f"Supervity connection failed safely ({type(exc).__name__}).",
         }
 

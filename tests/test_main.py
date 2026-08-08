@@ -293,6 +293,7 @@ async def test_manual_trigger_stages_actions_behind_workbench(monkeypatch):
         assert result["external_actions"] == []
         assert result["orchestrator"]["status"] == "configured_not_executed"
         assert result["orchestrator"]["executed"] is False
+        assert result["orchestrator"]["workflow_id"] == day90_integrations.DEFAULT_SUPERVITY_WORKFLOW_ID
         assert "approve" in result["message"].lower()
     finally:
         day90.AUDIT_TRAIL[:] = audit_before
@@ -487,6 +488,9 @@ async def test_manual_trigger_can_call_supervity_with_approval_gated_payload(mon
         assert result["orchestrator"]["executed"] is True
         assert result["orchestrator"]["run_id"] == "RUN-123"
         assert result["orchestrator"]["status"] == "completed"
+        assert result["orchestrator"]["workflow_id"] == day90_integrations.DEFAULT_SUPERVITY_WORKFLOW_ID
+        assert result["orchestrator"]["status_code"] == 200
+        assert result["orchestrator"]["events_observed"] == ["result", "workflow-run"]
         assert result["status"] == "live_orchestration_started"
         assert len(requests) == 1
         assert requests[0]["method"] == "POST"
@@ -559,6 +563,7 @@ async def test_supervity_connector_sends_active_org_only_when_configured(monkeyp
 
     assert result["ok"] is True
     assert result["run_id"] == "RUN-ORG"
+    assert result["workflow_id"] == day90_integrations.DEFAULT_SUPERVITY_WORKFLOW_ID
     assert requests[0]["headers"]["x-active-org"] == "alpha"
 
 
@@ -583,6 +588,7 @@ async def test_supervity_connector_fails_closed_when_request_is_rejected(monkeyp
     assert result["ok"] is False
     assert result["executed"] is False
     assert result["status"] == "request_rejected"
+    assert result["workflow_id"] == day90_integrations.DEFAULT_SUPERVITY_WORKFLOW_ID
     assert result["status_code"] == 401
     assert "test-supervity-token" not in str(result)
 
@@ -611,6 +617,9 @@ async def test_supervity_connector_requires_verified_run_id(monkeypatch):
     assert result["ok"] is False
     assert result["executed"] is False
     assert result["status"] == "invalid_response"
+    assert result["workflow_id"] == day90_integrations.DEFAULT_SUPERVITY_WORKFLOW_ID
+    assert result["status_code"] == 200
+    assert result["events_observed"] == ["result"]
     assert "not verified" in result["detail"]
 
 
@@ -645,3 +654,6 @@ async def test_supervity_connector_reports_streamed_failure(monkeypatch):
     assert result["executed"] is True
     assert result["run_id"] == "RUN-FAILED"
     assert result["status"] == "failed"
+    assert result["workflow_id"] == day90_integrations.DEFAULT_SUPERVITY_WORKFLOW_ID
+    assert result["status_code"] == 200
+    assert result["events_observed"] == ["workflow-run"]

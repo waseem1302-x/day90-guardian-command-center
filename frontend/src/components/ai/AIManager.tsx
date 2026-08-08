@@ -22,7 +22,10 @@ interface GuardianRunResponse {
   run_tag: string
   orchestrator?: {
     status?: string
+    workflow_id?: string | null
     run_id?: string | null
+    status_code?: number
+    events_observed?: string[]
     detail?: string
   }
   external_actions?: unknown[]
@@ -191,6 +194,15 @@ export function AIManager() {
       const runIdLine = result.orchestrator?.run_id
         ? `\n- Auto run ID: \`${result.orchestrator.run_id}\``
         : ''
+      const workflowIdLine = result.orchestrator?.workflow_id
+        ? `\n- Supervity workflow ID: \`${result.orchestrator.workflow_id}\``
+        : ''
+      const httpStatusLine = typeof result.orchestrator?.status_code === 'number'
+        ? `\n- Supervity HTTP status: **${result.orchestrator.status_code}**`
+        : ''
+      const streamEventsLine = result.orchestrator?.events_observed?.length
+        ? `\n- Stream events observed: \`${result.orchestrator.events_observed.join(', ')}\``
+        : ''
       const auditLine = result.audit?.event
         ? `\n- Audit event: **${result.audit.event}**`
         : ''
@@ -204,7 +216,7 @@ export function AIManager() {
           `${result.message ?? 'Guardian Review trigger captured.'}\n\n` +
           `- Run tag: \`${result.run_tag}\`\n` +
           `- Command Center status: **${result.status}**\n` +
-          `- Auto status: **${autoStatus}**${runIdLine}\n` +
+          `- Auto status: **${autoStatus}**${runIdLine}${workflowIdLine}${httpStatusLine}${streamEventsLine}\n` +
           `- External actions created by this trigger: **${externalActionCount}**\n` +
           `- Human gate: **Workbench approval remains required**${auditLine}${detail}`,
       })
