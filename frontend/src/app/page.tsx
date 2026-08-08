@@ -328,8 +328,8 @@ export default function HomePage() {
               <span className='rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700'>{liveReadyCount}/{liveTotalCount} live integrations</span>
               <span className='rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700'>{fallbackReadyCount}/{fallbackTotalCount} fallback ready</span>
             </div>
-            <h1 className='mt-3 text-3xl font-bold tracking-tight text-brand-navy lg:text-4xl'>Day90 Guardian Command Center</h1>
-            <p className='mt-2 max-w-3xl text-sm leading-6 text-muted-foreground lg:text-base'>
+            <h1 className='mt-3 pl-4 text-3xl font-bold tracking-tight text-brand-navy lg:text-4xl'>Day90 Guardian Command Center</h1>
+            <p className='mt-2 max-w-3xl pl-4 text-sm leading-6 text-muted-foreground lg:text-base'>
               A governed AI employee for People Ops teams: it monitors new-hire readiness, access gaps, compliance misses, payroll exceptions, and engagement signals before they turn into retention risk.
             </p>
           </div>
