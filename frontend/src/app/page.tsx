@@ -71,6 +71,24 @@ type AuditEvent = {
   detail: string
 }
 
+type GuardianRunResponse = {
+  status: string
+  message?: string
+  run_tag: string
+  orchestrator?: {
+    status?: string
+    workflow_id?: string | null
+    run_id?: string | null
+    status_code?: number
+    events_observed?: string[]
+    detail?: string
+  }
+  external_actions?: unknown[]
+  audit?: {
+    event?: string
+  }
+}
+
 type DashboardPayload = {
   run: {
     name: string
@@ -119,6 +137,46 @@ function integrationDisplayDetail(integration: Integration) {
   return integration.detail
 }
 
+function statusLabel(value?: string) {
+  return value?.replaceAll('_', ' ') ?? 'not reported'
+}
+
+function DashboardRunReceipt({ receipt }: { receipt: GuardianRunResponse }) {
+  const externalActionCount = receipt.external_actions?.length ?? 0
+  const receiptRows = [
+    ['Run tag', receipt.run_tag],
+    ['Command Center status', statusLabel(receipt.status)],
+    ['Auto status', statusLabel(receipt.orchestrator?.status)],
+    ['Auto run ID', receipt.orchestrator?.run_id],
+    ['Supervity workflow ID', receipt.orchestrator?.workflow_id],
+    ['Supervity HTTP status', typeof receipt.orchestrator?.status_code === 'number' ? String(receipt.orchestrator.status_code) : undefined],
+    ['Stream events observed', receipt.orchestrator?.events_observed?.join(', ')],
+    ['External actions created', String(externalActionCount)],
+    ['Workbench gate', 'Approval remains required'],
+    ['Audit event', receipt.audit?.event],
+  ].filter((row): row is [string, string] => Boolean(row[1]))
+
+  return (
+    <div className='rounded-2xl border border-brand-cornflower/20 bg-white/85 p-3 text-left shadow-sm' role='status'>
+      <p className='text-xs font-bold uppercase tracking-[0.16em] text-brand-cornflower'>Guardian run receipt</p>
+      <p className='mt-1 text-xs leading-5 text-brand-navy'>{receipt.message ?? 'Guardian Review trigger captured.'}</p>
+      <dl className='mt-3 space-y-2'>
+        {receiptRows.map(([label, value]) => (
+          <div key={label} className='grid gap-1 rounded-xl bg-brand-navy/5 px-3 py-2 sm:grid-cols-[135px_1fr]'>
+            <dt className='text-[11px] font-semibold uppercase tracking-wide text-muted-foreground'>{label}</dt>
+            <dd className='break-words font-mono text-[11px] leading-5 text-brand-navy'>{value}</dd>
+          </div>
+        ))}
+      </dl>
+      {receipt.orchestrator?.detail && (
+        <p className='mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800'>
+          {receipt.orchestrator.detail}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function LoadingShell() {
   return (
     <div className='flex min-h-[50vh] items-center justify-center'>
@@ -148,6 +206,7 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null)
   const [isTriggering, setIsTriggering] = useState(false)
   const [runNotice, setRunNotice] = useState<string | null>(null)
+  const [runReceipt, setRunReceipt] = useState<GuardianRunResponse | null>(null)
 
   useEffect(() => {
     apiClient
@@ -159,9 +218,10 @@ export default function HomePage() {
   const triggerRun = async () => {
     setIsTriggering(true)
     setRunNotice(null)
+    setRunReceipt(null)
     try {
-      const result = await apiClient.post<{ message?: string }>('/api/day90/runs/trigger')
-      setRunNotice(result.message ?? 'Guardian review staged. Open Workbench to approve a route-safe action.')
+      const result = await apiClient.post<GuardianRunResponse>('/api/day90/runs/trigger')
+      setRunReceipt(result)
       const refreshed = await apiClient.get<DashboardPayload>('/api/day90/dashboard')
       setData(refreshed)
     } catch (err) {
@@ -207,13 +267,14 @@ export default function HomePage() {
               A governed AI employee for People Ops teams: it monitors new-hire readiness, access gaps, compliance misses, payroll exceptions, and engagement signals before they turn into retention risk.
             </p>
           </div>
-          <div className='flex shrink-0 flex-col gap-2 rounded-2xl border border-white/70 bg-white/70 p-3 shadow-sm backdrop-blur'>
+          <div className='flex w-full shrink-0 flex-col gap-2 rounded-2xl border border-white/70 bg-white/70 p-3 shadow-sm backdrop-blur xl:w-[430px]'>
             <Button variant='gradient' className='h-12 min-w-72 justify-center rounded-2xl text-sm font-semibold' onClick={triggerRun} disabled={isTriggering}>
               {isTriggering ? <Icons.loader className='mr-2 h-4 w-4 animate-spin' /> : <Icons.zap className='mr-2 h-4 w-4' />}
               Run Guardian Review
             </Button>
             <p className='text-center text-[11px] font-medium text-muted-foreground'>Creates a privacy-safe escalation with auditable evidence.</p>
             {runNotice && <p className='max-w-72 rounded-lg bg-brand-navy/5 px-3 py-2 text-center text-xs leading-5 text-brand-navy' role='status'>{runNotice}</p>}
+            {runReceipt && <DashboardRunReceipt receipt={runReceipt} />}
           </div>
         </div>
       </section>
