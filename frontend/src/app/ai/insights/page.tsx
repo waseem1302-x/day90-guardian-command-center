@@ -48,6 +48,7 @@ export default function AIInsightsPage() {
   const [patterns, setPatterns] = useState<Pattern[]>([])
   const [actions, setActions] = useState<ActionItem[]>([])
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [refreshNotice, setRefreshNotice] = useState<string | null>(null)
   const router = useRouter()
 
   const loadInsights = async () => {
@@ -63,9 +64,12 @@ export default function AIInsightsPage() {
 
   const analyze = async () => {
     setIsAnalyzing(true)
+    setRefreshNotice(null)
     try {
-      await apiClient.post('/api/day90/runs/trigger')
       await loadInsights()
+      setRefreshNotice('Insights refreshed from current Day90 data. No Guardian run or external action was triggered.')
+    } catch (err) {
+      setRefreshNotice(err instanceof Error ? err.message : 'Insights could not be refreshed.')
     } finally {
       setIsAnalyzing(false)
     }
@@ -83,9 +87,14 @@ export default function AIInsightsPage() {
         </div>
         <Button variant='gradient' onClick={analyze} disabled={isAnalyzing}>
           {isAnalyzing ? <Icons.loader className='mr-2 h-4 w-4 animate-spin' /> : <Icons.sparkles className='mr-2 h-4 w-4' />}
-          Recompute Insights
+          Refresh Insights
         </Button>
       </div>
+      {refreshNotice && (
+        <p className='rounded-2xl border border-brand-cornflower/20 bg-brand-cornflower/10 px-4 py-3 text-sm font-medium text-brand-navy' role='status'>
+          {refreshNotice}
+        </p>
+      )}
 
       <div className='grid gap-4 md:grid-cols-3'>
         {[
