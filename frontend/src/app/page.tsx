@@ -320,7 +320,7 @@ export default function HomePage() {
   return (
     <motion.div className='mx-auto w-full max-w-[1440px] overflow-x-hidden space-y-4' initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
       <section className='overflow-hidden rounded-3xl border border-brand-cornflower/20 bg-gradient-to-br from-white via-white to-brand-cornflower/10 p-5 shadow-soft'>
-        <div className='flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between'>
+        <div className='flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between'>
           <div className='max-w-4xl'>
             <div className='flex flex-wrap items-center gap-2'>
               <span className='rounded-full bg-brand-navy px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white'>Live HR control plane</span>
