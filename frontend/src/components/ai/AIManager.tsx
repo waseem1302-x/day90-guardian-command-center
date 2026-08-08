@@ -437,6 +437,12 @@ export function AIManager() {
                         userImage={session?.user?.image}
                       />
                     ))}
+                    <div className="rounded-2xl border border-brand-cornflower/15 bg-brand-cornflower/5 px-3 py-3">
+                      <p className="px-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-brand-cornflower">
+                        Supported commands
+                      </p>
+                      <CapabilityBubbles onSelect={handleQuickAction} />
+                    </div>
                     <div ref={messagesEndRef} />
                   </div>
                 )}
