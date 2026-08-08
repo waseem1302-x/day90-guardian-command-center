@@ -82,6 +82,8 @@ type GuardianRunResponse = {
     status_code?: number
     events_observed?: string[]
     policy_snapshot_sent?: boolean
+    operator_evidence_snapshot_sent?: boolean
+    operator_evidence_packet_count?: number
     policy_snapshot?: {
       profile?: string
       version?: number
@@ -181,6 +183,7 @@ function DashboardRunReceipt({
         ['Supervity HTTP status', typeof receipt.orchestrator?.status_code === 'number' ? String(receipt.orchestrator.status_code) : undefined],
         ['Stream events observed', receipt.orchestrator?.events_observed?.join(', ')],
         ['Policy snapshot sent', receipt.orchestrator?.policy_snapshot_sent ? 'Yes - included in Supervity trigger input' : policySnapshot ? 'Prepared - not included in Supervity input' : undefined],
+        ['Operator evidence sent', receipt.orchestrator?.operator_evidence_snapshot_sent ? `Yes - ${receipt.orchestrator.operator_evidence_packet_count ?? 0} Workbench case packets included` : undefined],
         ['Policy profile', policySnapshot ? `${policySnapshot.profile ?? 'policy'} v${policySnapshot.version ?? 'not reported'} (${policySnapshot.active_policy_count ?? 0} active policies)` : undefined],
         ['Policy safety lock', policySnapshot?.confidential_route_locked ? 'Confidential route locked fail-closed' : undefined],
         ['Active policy routes', activePolicyRoutes],

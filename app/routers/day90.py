@@ -561,6 +561,87 @@ def _signals_text(signals: dict) -> str:
     return ", ".join(parts) or "No major signals"
 
 
+OPERATOR_EVIDENCE_CONTRACT = "day90-operator-evidence-v1"
+
+
+def _operator_names_for_case(signals: dict, route: str) -> list[str]:
+    names = [OPERATORS[0]["name"]]
+    if signals.get("overdue_tasks") or signals.get("blocked_prov") or signals.get("day1_blocks"):
+        names.append(OPERATORS[1]["name"])
+    if signals.get("low_engagement") or signals.get("confidential") or signals.get("manager_slow"):
+        names.append(OPERATORS[2]["name"])
+    if route in {"AMBER", "RED", "CONFIDENTIAL", "DATA_QUALITY"}:
+        names.append(OPERATORS[3]["name"])
+    if route in {"AMBER", "RED"}:
+        names.append(OPERATORS[4]["name"])
+    return list(dict.fromkeys(names))
+
+
+def _policy_gate_for_route(route: str) -> str:
+    return {
+        "CONFIDENTIAL": "Confidential Disclosure Isolation",
+        "RED": "Red Compliance and Payroll Gate",
+        "AMBER": "Amber Manager Nudge",
+        "DATA_QUALITY": "Data Quality Stop",
+    }.get(route, "Green no-action gate")
+
+
+def _case_operator_evidence(employee_id: str, route: str, score: int, signals: dict, reason: str) -> dict:
+    source_operators = _operator_names_for_case(signals, route)
+    return {
+        "contract": OPERATOR_EVIDENCE_CONTRACT,
+        "evidence_packet_id": f"op-evidence-{employee_id.lower()}-{route.lower()}",
+        "generated_from": "live_day90_profile",
+        "source_operators": source_operators,
+        "policy_gate": _policy_gate_for_route(route),
+        "policy_profile": POLICY_PROFILE,
+        "policy_version": POLICY_VERSION,
+        "route": route,
+        "risk_score": score,
+        "evidence_summary": [
+            f"Risk score {score}",
+            reason,
+            f"Policy gate: {_policy_gate_for_route(route)}",
+        ],
+        "handoff": "Operator evidence -> policy gate -> Workbench approval",
+        "supervity_trace": "Included in operator_evidence_snapshot when Guardian Review triggers Auto.",
+    }
+
+
+def _operator_evidence_snapshot(profile: dict, cases: list[dict]) -> dict:
+    return {
+        "contract": OPERATOR_EVIDENCE_CONTRACT,
+        "generated_from": "live_day90_profile",
+        "source": {
+            "kind": profile.get("source", {}).get("kind"),
+            "as_of_date": profile.get("source", {}).get("as_of_date"),
+        },
+        "policy_profile": POLICY_PROFILE,
+        "policy_version": POLICY_VERSION,
+        "operators": [
+            {
+                "name": operator["name"],
+                "mode": operator["mode"],
+                "status": operator["status"],
+            }
+            for operator in OPERATORS
+        ],
+        "case_links": [
+            {
+                "case_id": case.get("id"),
+                "case_key": case.get("case_key"),
+                "employee_id": case.get("employee_id"),
+                "route": case.get("route"),
+                "evidence_packet_id": case.get("operator_evidence", {}).get("evidence_packet_id"),
+                "source_operators": case.get("operator_evidence", {}).get("source_operators", []),
+                "policy_gate": case.get("operator_evidence", {}).get("policy_gate"),
+            }
+            for case in cases
+        ],
+        "safety_boundary": "External Slack/Asana actions remain blocked until Workbench approval.",
+    }
+
+
 def _workbench_cases_from_profile(profile: dict) -> list[dict]:
     generated = []
     selected_cases = []
@@ -603,6 +684,7 @@ def _workbench_cases_from_profile(profile: dict) -> list[dict]:
             recommended_action = "Send to People data steward for HRIS/source-data correction before any Slack or Asana action."
             assignee = "People data steward"
             security = "Source-data issue quarantined; no public Slack or Asana artifact is created."
+        operator_evidence = _case_operator_evidence(employee_id, route, case["score"], signals, reason)
         generated.append(
             {
                 "id": f"case-{employee_id.lower()}-{route.lower()}",
@@ -621,11 +703,26 @@ def _workbench_cases_from_profile(profile: dict) -> list[dict]:
                     reason,
                     "Policy profile hr-default v1 evaluated",
                 ],
+                "operator_evidence": operator_evidence,
                 "updated_at": "2026-08-03T07:02:15+00:00",
             }
         )
     cases = generated or deepcopy(WORKBENCH_CASES)
-    return [{**case, **CASE_DECISIONS.get(case["id"], {})} for case in cases]
+    enriched_cases = []
+    for case in cases:
+        enriched = {**case, **CASE_DECISIONS.get(case["id"], {})}
+        if "operator_evidence" not in enriched:
+            route = str(enriched.get("route") or "AMBER")
+            reason = str(enriched.get("reason") or ", ".join(enriched.get("evidence", [])) or "Seeded Workbench evidence")
+            enriched["operator_evidence"] = _case_operator_evidence(
+                str(enriched.get("employee_id") or "unknown"),
+                route,
+                0,
+                {},
+                reason,
+            )
+        enriched_cases.append(enriched)
+    return enriched_cases
 
 
 def _insights_from_profile(profile: dict) -> list[dict]:
@@ -909,12 +1006,17 @@ def trigger_run():
     live_ready = all_required_live_integrations_ready(profile["source"])
     cases = _workbench_cases_from_profile(profile)
     run_tag = f"R2-LIVE-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
-    auto_receipt = execute_supervity_orchestrator(profile, cases, run_tag)
+    auto_profile = deepcopy(profile)
+    auto_profile["operator_evidence_snapshot"] = _operator_evidence_snapshot(profile, cases)
+    auto_receipt = execute_supervity_orchestrator(auto_profile, cases, run_tag)
     policy_snapshot = auto_receipt.get("policy_snapshot") or profile.get("policy_snapshot") or {}
+    evidence_packet_count = auto_receipt.get("operator_evidence_packet_count", 0)
     policy_proof = (
         f" Policy snapshot {policy_snapshot.get('profile', POLICY_PROFILE)} v{policy_snapshot.get('version', POLICY_VERSION)} "
         f"with {policy_snapshot.get('active_policy_count', 0)} active policies "
         f"{'sent to Auto' if auto_receipt.get('policy_snapshot_sent') else 'prepared'}."
+        f" Operator evidence packets: {evidence_packet_count} "
+        f"{'sent to Auto' if auto_receipt.get('operator_evidence_snapshot_sent') else 'prepared'}."
     )
     if auto_receipt.get("status") != "not_configured":
         AUDIT_TRAIL.insert(

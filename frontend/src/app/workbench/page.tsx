@@ -21,6 +21,17 @@ type ReviewCase = {
   status: string
   security: string
   evidence: string[]
+  operator_evidence?: {
+    contract?: string
+    evidence_packet_id?: string
+    generated_from?: string
+    source_operators?: string[]
+    policy_gate?: string
+    policy_profile?: string
+    policy_version?: number
+    handoff?: string
+    supervity_trace?: string
+  }
   updated_at: string
 }
 
@@ -220,6 +231,40 @@ export default function WorkbenchPage() {
                   ))}
                 </div>
               </div>
+
+              {selectedCase.operator_evidence && (
+                <div className='rounded-lg border border-brand-cornflower/25 bg-brand-cornflower/10 p-4'>
+                  <div className='flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between'>
+                    <div>
+                      <p className='text-xs font-semibold uppercase tracking-wide text-brand-cornflower'>Operator provenance</p>
+                      <p className='mt-2 text-sm text-brand-navy'>{selectedCase.operator_evidence.handoff}</p>
+                    </div>
+                    <span className='w-fit rounded-full bg-white px-3 py-1 font-mono text-[11px] font-semibold text-brand-navy'>
+                      {selectedCase.operator_evidence.evidence_packet_id}
+                    </span>
+                  </div>
+                  <div className='mt-3 grid gap-3 lg:grid-cols-2'>
+                    <div className='rounded-lg bg-white/80 p-3'>
+                      <p className='text-[11px] font-semibold uppercase tracking-wide text-muted-foreground'>Source Operators</p>
+                      <div className='mt-2 flex flex-wrap gap-2'>
+                        {selectedCase.operator_evidence.source_operators?.map((operator) => (
+                          <span key={operator} className='rounded-full border border-brand-cornflower/20 bg-white px-2 py-1 text-[11px] font-semibold text-brand-navy'>
+                            {operator}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className='rounded-lg bg-white/80 p-3'>
+                      <p className='text-[11px] font-semibold uppercase tracking-wide text-muted-foreground'>Policy Gate</p>
+                      <p className='mt-2 text-sm font-semibold text-brand-navy'>{selectedCase.operator_evidence.policy_gate}</p>
+                      <p className='mt-1 text-xs text-muted-foreground'>
+                        {selectedCase.operator_evidence.policy_profile} v{selectedCase.operator_evidence.policy_version}
+                      </p>
+                    </div>
+                  </div>
+                  <p className='mt-3 text-xs leading-5 text-muted-foreground'>{selectedCase.operator_evidence.supervity_trace}</p>
+                </div>
+              )}
 
               <div>
                 <label className='text-sm font-medium text-brand-navy'>Reviewer note</label>

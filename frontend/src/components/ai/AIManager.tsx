@@ -26,6 +26,8 @@ interface GuardianRunResponse {
     run_id?: string | null
     status_code?: number
     events_observed?: string[]
+    operator_evidence_snapshot_sent?: boolean
+    operator_evidence_packet_count?: number
     detail?: string
   }
   external_actions?: unknown[]
@@ -206,6 +208,9 @@ export function AIManager() {
       const streamEventsLine = result.orchestrator?.events_observed?.length
         ? `\n- Stream events observed: \`${result.orchestrator.events_observed.join(', ')}\``
         : ''
+      const operatorEvidenceLine = result.orchestrator?.operator_evidence_snapshot_sent
+        ? `\n- Operator evidence snapshot: **sent** (${result.orchestrator.operator_evidence_packet_count ?? 0} Workbench case packets)`
+        : ''
       const auditLine = result.audit?.event
         ? `\n- Audit event: **${result.audit.event}**`
         : ''
@@ -219,7 +224,7 @@ export function AIManager() {
           `${result.message ?? 'Guardian Review trigger captured.'}\n\n` +
           `- Run tag: \`${result.run_tag}\`\n` +
           `- Command Center status: **${result.status}**\n` +
-          `- Auto status: **${autoStatus}**${runIdLine}${workflowIdLine}${httpStatusLine}${streamEventsLine}\n` +
+          `- Auto status: **${autoStatus}**${runIdLine}${workflowIdLine}${httpStatusLine}${streamEventsLine}${operatorEvidenceLine}\n` +
           `- External actions created by this trigger: **${externalActionCount}**\n` +
           `- Human gate: **Workbench approval remains required**${auditLine}${detail}`,
       })

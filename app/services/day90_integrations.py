@@ -256,6 +256,11 @@ def _supervity_contract_inputs(profile: dict) -> dict:
     """Build the exact Auto workflow input names observed from the v12 workflow metadata."""
     source = profile.get("source") if isinstance(profile.get("source"), dict) else {}
     policy_snapshot = profile.get("policy_snapshot") if isinstance(profile.get("policy_snapshot"), dict) else None
+    operator_evidence_snapshot = (
+        profile.get("operator_evidence_snapshot")
+        if isinstance(profile.get("operator_evidence_snapshot"), dict)
+        else None
+    )
     as_of_date = os.getenv("SUPERVITY_AS_OF_DATETIME", "").strip()
     if not as_of_date:
         as_of_date = f"{source.get('as_of_date') or '2026-08-03'}T12:00:00+08:00"
@@ -277,6 +282,12 @@ def _supervity_contract_inputs(profile: dict) -> dict:
     }
     if policy_snapshot and supervity_policy_snapshot_input_enabled():
         inputs["policy_snapshot"] = json.dumps(policy_snapshot, sort_keys=True, separators=(",", ":"))
+    if operator_evidence_snapshot:
+        inputs["operator_evidence_snapshot"] = json.dumps(
+            operator_evidence_snapshot,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
     return inputs
 
 
@@ -293,6 +304,12 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
     workflow_id = os.getenv("SUPERVITY_WORKFLOW_ID", DEFAULT_SUPERVITY_WORKFLOW_ID).strip()
     active_org = os.getenv("SUPERVITY_ACTIVE_ORG", DEFAULT_SUPERVITY_ACTIVE_ORG).strip()
     policy_snapshot = profile.get("policy_snapshot") if isinstance(profile.get("policy_snapshot"), dict) else None
+    operator_evidence_snapshot = (
+        profile.get("operator_evidence_snapshot")
+        if isinstance(profile.get("operator_evidence_snapshot"), dict)
+        else None
+    )
+    operator_evidence_packet_count = len(operator_evidence_snapshot.get("case_links", [])) if operator_evidence_snapshot else 0
     if not workflow_url or not api_key or not workflow_id:
         return {
             "system": "supervity_auto",
@@ -302,6 +319,8 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
             "workflow_id": workflow_id or None,
             "policy_snapshot": policy_snapshot,
             "policy_snapshot_sent": False,
+            "operator_evidence_snapshot_sent": False,
+            "operator_evidence_packet_count": operator_evidence_packet_count,
             "detail": "Supervity endpoint, workflow ID, or API key is missing.",
         }
 
@@ -314,6 +333,8 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
             "workflow_id": workflow_id,
             "policy_snapshot": policy_snapshot,
             "policy_snapshot_sent": False,
+            "operator_evidence_snapshot_sent": False,
+            "operator_evidence_packet_count": operator_evidence_packet_count,
             "detail": "Supervity endpoint must use /api/v1/workflow-runs/execute/stream.",
         }
 
@@ -326,11 +347,14 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
             "workflow_id": workflow_id,
             "policy_snapshot": policy_snapshot,
             "policy_snapshot_sent": False,
+            "operator_evidence_snapshot_sent": False,
+            "operator_evidence_packet_count": operator_evidence_packet_count,
             "detail": "Supervity is configured; execution is disabled by DAY90_SUPERVITY_TRIGGER_ENABLED.",
         }
 
     workflow_inputs = _supervity_contract_inputs(profile)
     policy_snapshot_sent = "policy_snapshot" in workflow_inputs
+    operator_evidence_snapshot_sent = "operator_evidence_snapshot" in workflow_inputs
 
     request_sent = False
     try:
@@ -376,6 +400,8 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
                     "status_code": response.status_code,
                     "policy_snapshot": policy_snapshot,
                     "policy_snapshot_sent": policy_snapshot_sent,
+                    "operator_evidence_snapshot_sent": operator_evidence_snapshot_sent,
+                    "operator_evidence_packet_count": operator_evidence_packet_count,
                     "detail": f"Supervity rejected the workflow request with HTTP {response.status_code}.",
                 }
 
@@ -409,6 +435,8 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
                 "events_observed": sorted(observed_events),
                 "policy_snapshot": policy_snapshot,
                 "policy_snapshot_sent": policy_snapshot_sent,
+                "operator_evidence_snapshot_sent": operator_evidence_snapshot_sent,
+                "operator_evidence_packet_count": operator_evidence_packet_count,
                 "detail": "Supervity reported a workflow execution failure.",
             }
 
@@ -424,6 +452,8 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
                 "events_observed": sorted(observed_events),
                 "policy_snapshot": policy_snapshot,
                 "policy_snapshot_sent": policy_snapshot_sent,
+                "operator_evidence_snapshot_sent": operator_evidence_snapshot_sent,
+                "operator_evidence_packet_count": operator_evidence_packet_count,
                 "detail": "Supervity returned no workflow run ID; execution was not verified.",
             }
 
@@ -440,6 +470,8 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
             "observation_timed_out": observation_timed_out,
             "policy_snapshot": policy_snapshot,
             "policy_snapshot_sent": policy_snapshot_sent,
+            "operator_evidence_snapshot_sent": operator_evidence_snapshot_sent,
+            "operator_evidence_packet_count": operator_evidence_packet_count,
             "detail": f"Auto Orchestrator accepted verified run {run_id}; Workbench approval remains required.",
         }
     except (httpx.HTTPError, json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:  # pragma: no cover - network dependent
@@ -452,6 +484,8 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
             "workflow_id": workflow_id,
             "policy_snapshot": policy_snapshot,
             "policy_snapshot_sent": policy_snapshot_sent,
+            "operator_evidence_snapshot_sent": False,
+            "operator_evidence_packet_count": operator_evidence_packet_count,
             "detail": f"Supervity connection failed safely ({type(exc).__name__}).",
         }
     except Exception as exc:  # pragma: no cover - defensive production boundary
@@ -464,6 +498,8 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
             "workflow_id": workflow_id,
             "policy_snapshot": policy_snapshot,
             "policy_snapshot_sent": policy_snapshot_sent,
+            "operator_evidence_snapshot_sent": False,
+            "operator_evidence_packet_count": operator_evidence_packet_count,
             "detail": f"Supervity connection failed safely ({type(exc).__name__}).",
         }
 

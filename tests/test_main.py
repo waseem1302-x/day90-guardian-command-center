@@ -347,6 +347,10 @@ async def test_data_quality_case_copy_does_not_suggest_public_actions(monkeypatc
     assert "source-data correction" in data_quality_case["recommended_action"]
     assert "approve a masked Slack/Asana action" not in data_quality_case["recommended_action"]
     assert "no public Slack or Asana artifact" in data_quality_case["security"]
+    assert data_quality_case["operator_evidence"]["contract"] == day90.OPERATOR_EVIDENCE_CONTRACT
+    assert data_quality_case["operator_evidence"]["evidence_packet_id"] == "op-evidence-emp9003-data_quality"
+    assert data_quality_case["operator_evidence"]["policy_gate"] == "Data Quality Stop"
+    assert day90.OPERATORS[0]["name"] in data_quality_case["operator_evidence"]["source_operators"]
 
 
 async def test_approved_decision_is_idempotent(monkeypatch):
@@ -681,6 +685,8 @@ async def test_manual_trigger_can_call_supervity_with_approval_gated_payload(mon
         assert result["orchestrator"]["events_observed"] == ["result", "workflow-run"]
         assert result["orchestrator"]["policy_snapshot_sent"] is True
         assert result["orchestrator"]["policy_snapshot"]["active_policy_count"] == 4
+        assert result["orchestrator"]["operator_evidence_snapshot_sent"] is True
+        assert result["orchestrator"]["operator_evidence_packet_count"] == 1
         assert result["status"] == "live_orchestration_started"
         assert len(requests) == 1
         assert requests[0]["method"] == "POST"
@@ -705,6 +711,11 @@ async def test_manual_trigger_can_call_supervity_with_approval_gated_payload(mon
         assert policy_snapshot["confidential_route_locked"] is True
         assert {policy["route"] for policy in policy_snapshot["policies"]} == {"AMBER", "RED"}
         assert "severity_score >= 85" in policy_snapshot["policies"][0]["threshold"]
+        operator_evidence_snapshot = json.loads(request_inputs.pop("operator_evidence_snapshot"))
+        assert operator_evidence_snapshot["contract"] == day90.OPERATOR_EVIDENCE_CONTRACT
+        assert operator_evidence_snapshot["policy_profile"] == "hr-default"
+        assert operator_evidence_snapshot["case_links"][0]["case_id"] == "case-1"
+        assert operator_evidence_snapshot["safety_boundary"].startswith("External Slack/Asana actions remain blocked")
         assert request_inputs == {
             "as_of_datetime": "2026-08-03T12:00:00+08:00",
             "scope_type": "all",
