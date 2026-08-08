@@ -30,6 +30,21 @@ type ActionReceipt = {
   detail: string
 }
 
+type AuditReceipt = {
+  event: string
+  actor: string
+  detail: string
+  time: string
+}
+
+type DecisionReceipt = {
+  case: ReviewCase
+  decision: 'approve' | 'modify' | 'reject'
+  actions: ActionReceipt[]
+  audit?: AuditReceipt
+  note: string
+}
+
 const actionReceiptUrlPattern = /https?:\/\/\S+/
 
 function getActionReceiptUrl(detail: string) {
@@ -53,6 +68,18 @@ function getActionReceiptLinkLabel(action: ActionReceipt) {
   return action.system.toLowerCase().includes('asana') ? 'Open task' : 'Open artifact'
 }
 
+function getDecisionReceiptCopy(receipt: DecisionReceipt) {
+  if (receipt.decision === 'modify') {
+    return 'Correction request recorded for future review. No Slack or Asana action was created.'
+  }
+  if (receipt.decision === 'reject') {
+    return 'Recommendation rejected and retained in the audit trail. No Slack or Asana action was created.'
+  }
+  return receipt.actions.length > 0
+    ? 'Approval recorded. Route-safe external artifacts were attempted below.'
+    : 'Approval recorded. No external action was created for this route.'
+}
+
 const routeStyles: Record<string, string> = {
   AMBER: 'bg-amber-100 text-amber-800 border-amber-200',
   RED: 'bg-red-100 text-red-800 border-red-200',
@@ -67,6 +94,7 @@ export default function WorkbenchPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [actionReceipts, setActionReceipts] = useState<ActionReceipt[]>([])
+  const [decisionReceipt, setDecisionReceipt] = useState<DecisionReceipt | null>(null)
 
   const loadCases = async () => {
     const payload = await apiClient.get<{ cases: ReviewCase[] }>('/api/day90/workbench')
@@ -83,13 +111,16 @@ export default function WorkbenchPage() {
     if (!selectedCase) return
     setIsSaving(true)
     try {
-      const result = await apiClient.post<{ case: ReviewCase; actions?: ActionReceipt[] }>(`/api/day90/workbench/${selectedCase.id}/decision`, {
+      const reviewerNote = note
+      const result = await apiClient.post<{ case: ReviewCase; actions?: ActionReceipt[]; audit?: AuditReceipt }>(`/api/day90/workbench/${selectedCase.id}/decision`, {
         decision,
-        note,
+        note: reviewerNote,
       })
+      const actions = result.actions ?? []
       setCases((items) => items.map((item) => (item.id === selectedCase.id ? result.case : item)))
       setSelectedCase(result.case)
-      setActionReceipts(result.actions ?? [])
+      setActionReceipts(actions)
+      setDecisionReceipt({ case: result.case, decision, actions, audit: result.audit, note: reviewerNote })
       setNote('')
     } finally {
       setIsSaving(false)
@@ -129,6 +160,7 @@ export default function WorkbenchPage() {
                 onClick={() => {
                   setSelectedCase(item)
                   setActionReceipts([])
+                  setDecisionReceipt(null)
                 }}
                 className={cn(
                   'w-full rounded-lg border p-4 text-left transition hover:border-brand-cornflower',
@@ -251,6 +283,35 @@ export default function WorkbenchPage() {
                       )
                     })}
                   </div>
+                </div>
+              )}
+
+              {decisionReceipt && (
+                <div className='rounded-lg border border-brand-cornflower/25 bg-brand-cornflower/10 p-4' role='status'>
+                  <p className='text-xs font-semibold uppercase tracking-wide text-brand-cornflower'>Decision receipt</p>
+                  <p className='mt-1 text-sm font-medium text-brand-navy'>{getDecisionReceiptCopy(decisionReceipt)}</p>
+                  <dl className='mt-3 grid gap-2 md:grid-cols-2'>
+                    <div className='rounded-lg bg-white/80 p-3'>
+                      <dt className='text-[11px] font-semibold uppercase tracking-wide text-muted-foreground'>Decision</dt>
+                      <dd className='mt-1 text-sm font-bold text-brand-navy'>{decisionReceipt.case.status.replaceAll('_', ' ')}</dd>
+                    </div>
+                    <div className='rounded-lg bg-white/80 p-3'>
+                      <dt className='text-[11px] font-semibold uppercase tracking-wide text-muted-foreground'>Employee / route</dt>
+                      <dd className='mt-1 text-sm font-bold text-brand-navy'>{decisionReceipt.case.employee_id} / {decisionReceipt.case.route}</dd>
+                    </div>
+                    <div className='rounded-lg bg-white/80 p-3'>
+                      <dt className='text-[11px] font-semibold uppercase tracking-wide text-muted-foreground'>External actions created</dt>
+                      <dd className='mt-1 text-sm font-bold text-brand-navy'>{decisionReceipt.actions.length}</dd>
+                    </div>
+                    <div className='rounded-lg bg-white/80 p-3'>
+                      <dt className='text-[11px] font-semibold uppercase tracking-wide text-muted-foreground'>Audit event</dt>
+                      <dd className='mt-1 text-sm font-bold text-brand-navy'>{decisionReceipt.audit?.event ?? 'Workbench decision recorded'}</dd>
+                    </div>
+                    <div className='rounded-lg bg-white/80 p-3 md:col-span-2'>
+                      <dt className='text-[11px] font-semibold uppercase tracking-wide text-muted-foreground'>Reviewer note</dt>
+                      <dd className='mt-1 text-sm text-brand-navy'>{decisionReceipt.note || 'No note provided'}</dd>
+                    </div>
+                  </dl>
                 </div>
               )}
             </CardContent>

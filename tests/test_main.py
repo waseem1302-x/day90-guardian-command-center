@@ -382,6 +382,49 @@ async def test_approved_decision_is_idempotent(monkeypatch):
         day90.CASE_ACTIONS.clear()
 
 
+async def test_modify_and_reject_decisions_return_audit_receipts_without_actions(monkeypatch):
+    case = {
+        "id": "case-test-red",
+        "case_key": "R2|EMP7041|DAY90|hr-default|1",
+        "employee_id": "EMP7041",
+        "route": "RED",
+        "status": "pending_review",
+    }
+    monkeypatch.setattr(day90, "_profile", lambda: {})
+    monkeypatch.setattr(day90, "_workbench_cases_from_profile", lambda _profile: [dict(case)])
+    monkeypatch.setattr(
+        day90,
+        "create_masked_reviewer_actions",
+        lambda *_args, **_kwargs: pytest.fail("modify/reject must not create external actions"),
+    )
+    day90.CASE_DECISIONS.clear()
+    day90.CASE_ACTIONS.clear()
+
+    audit_before = deepcopy(day90.AUDIT_TRAIL)
+    try:
+        modified = day90.record_decision(
+            "case-test-red",
+            day90.DecisionRequest(decision="modify", note="Needs corrected manager mapping"),
+        )
+        rejected = day90.record_decision(
+            "case-test-red",
+            day90.DecisionRequest(decision="reject", note="Recommendation not valid"),
+        )
+
+        assert modified["case"]["status"] == "modified"
+        assert modified["actions"] == []
+        assert modified["audit"]["event"] == "Workbench decision: modify"
+        assert "Needs corrected manager mapping" in modified["audit"]["detail"]
+        assert rejected["case"]["status"] == "rejected"
+        assert rejected["actions"] == []
+        assert rejected["audit"]["event"] == "Workbench decision: reject"
+        assert "Recommendation not valid" in rejected["audit"]["detail"]
+    finally:
+        day90.AUDIT_TRAIL[:] = audit_before
+        day90.CASE_DECISIONS.clear()
+        day90.CASE_ACTIONS.clear()
+
+
 async def test_manual_trigger_stages_actions_behind_workbench(monkeypatch):
     """A scan may be live-ready, but it must not notify until approval."""
     monkeypatch.setenv("SUPERVITY_WORKFLOW_EXECUTE_URL", "https://workflow.example/api/v1/workflow-runs/execute/stream")
