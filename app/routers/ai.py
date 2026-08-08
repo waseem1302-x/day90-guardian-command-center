@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
@@ -19,6 +21,7 @@ def _safe_day90_context() -> dict:
         dashboard = day90_router.dashboard_payload()
         workbench = day90_router.get_workbench()
         policies = day90_router.get_policies()
+        insights = day90_router.get_insights()
     except Exception as exc:  # pragma: no cover - protects chat from data-source outages
         return {"available": False, "error": str(exc)[:180]}
 
@@ -45,6 +48,9 @@ def _safe_day90_context() -> dict:
         "routing_preview": policies.get("routing_preview", []),
         "policies": policies.get("policies", []),
         "audit_head": dashboard.get("audit", [])[:3],
+        "insights": insights.get("insights", []),
+        "patterns": insights.get("patterns", []),
+        "actions": insights.get("actions", []),
     }
 
 
@@ -70,6 +76,32 @@ def _sample_cases(context: dict, limit: int = 4) -> str:
     )
 
 
+def _cases_for_route(context: dict, route: str, limit: int = 5) -> list[dict]:
+    return [
+        case
+        for case in context.get("workbench_cases", [])
+        if str(case.get("route", "")).upper() == route
+    ][:limit]
+
+
+def _format_cases(cases: list[dict]) -> str:
+    if not cases:
+        return "No matching Workbench cases are currently queued."
+    return "; ".join(
+        " / ".join(
+            str(value)
+            for value in [
+                case.get("employee_id"),
+                case.get("route"),
+                case.get("status"),
+                case.get("recommended_action"),
+            ]
+            if value
+        )
+        for case in cases
+    )
+
+
 def _policy_summary(context: dict) -> str:
     policies = context.get("policies", [])
     if not policies:
@@ -78,6 +110,66 @@ def _policy_summary(context: dict) -> str:
         f"{policy.get('name')}: {policy.get('route')} when `{policy.get('threshold')}`"
         for policy in policies[:4]
     )
+
+
+def _audit_summary(context: dict) -> str:
+    events = context.get("audit_head", [])
+    if not events:
+        return "No recent audit events were returned."
+    return "; ".join(
+        f"{event.get('event')} by {event.get('actor')}: {event.get('detail')}"
+        for event in events[:4]
+    )
+
+
+def _insight_summary(context: dict) -> str:
+    insights = context.get("insights", [])
+    if not insights:
+        return "No computed insights were returned."
+    return "; ".join(
+        f"{insight.get('severity', 'info')}: {insight.get('title')} -> {insight.get('suggested_action')}"
+        for insight in insights[:3]
+    )
+
+
+def _confidence_percent(value: object) -> int:
+    try:
+        return round(float(value or 0) * 100)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _recent_history_text(history: list[dict], limit: int = 4) -> str:
+    messages = []
+    for item in history[-limit:]:
+        content = str(item.get("content", "")).strip()
+        if content:
+            messages.append(content)
+    return " ".join(messages)
+
+
+def _expanded_message(message: str, history: list[dict]) -> str:
+    lower = message.lower().strip()
+    followup_starters = ("what about", "show me those", "show those", "them", "those", "these", "and", "also")
+    is_followup = len(lower.split()) <= 5 or lower.startswith(followup_starters)
+    if not is_followup:
+        return message
+    return f"{_recent_history_text(history)} {message}".strip()
+
+
+def _requested_route(message: str) -> str | None:
+    lower = message.lower()
+    route_terms = {
+        "CONFIDENTIAL": ["confidential", "privacy"],
+        "DATA_QUALITY": ["data quality", "data_quality", "source data", "hris"],
+        "AMBER": ["amber"],
+        "RED": ["red"],
+        "GREEN": ["green"],
+    }
+    for route, terms in route_terms.items():
+        if any(re.search(rf"\b{re.escape(term)}\b", lower) for term in terms):
+            return route
+    return None
 
 
 def _tool_result(context: dict) -> dict:
@@ -93,10 +185,12 @@ def _tool_result(context: dict) -> dict:
         "integrations": f"{context.get('integrations_ready')}/{context.get('integrations_total')}",
         "fallbacks": f"{context.get('fallbacks_ready')}/{context.get('fallbacks_total')}",
         "source": context.get("source", {}).get("kind"),
+        "insights": len(context.get("insights", [])),
+        "recent_audit_events": len(context.get("audit_head", [])),
     }
 
 
-def _contextual_response(message: str, page: str, context: dict) -> tuple[str, str]:
+def _contextual_response(message: str, page: str, context: dict, history: list[dict] | None = None) -> tuple[str, str]:
     if not context.get("available"):
         return (
             "I could not load the live Day90 context for this answer, so I would not rely on AI Manager proof until the data endpoint is healthy.",
@@ -108,7 +202,20 @@ def _contextual_response(message: str, page: str, context: dict) -> tuple[str, s
     route_line = _format_route_counts(context)
     sample_cases = _sample_cases(context)
     outcomes = context.get("outcomes", {})
-    lower = message.lower()
+    expanded = _expanded_message(message, history or [])
+    lower = expanded.lower()
+    requested_route = _requested_route(expanded)
+
+    if requested_route and any(word in lower for word in ["case", "workbench", "route", "queue", "what about", "show", "those", "these"]):
+        cases = _cases_for_route(context, requested_route)
+        counts = _route_counts(context)
+        return (
+            f"Here is the current `{requested_route}` route view from Workbench and route counts.\n\n"
+            f"- Route count: **{counts.get(requested_route, 0)}**\n"
+            f"- Matching Workbench cases: {_format_cases(cases)}\n"
+            "- This is read-only context; AI Manager is not approving or creating external actions from this answer.",
+            "summarize_route_cases",
+        )
 
     if any(word in lower for word in ["confidential", "privacy", "leak", "mask"]):
         return (
@@ -140,6 +247,34 @@ def _contextual_response(message: str, page: str, context: dict) -> tuple[str, s
             f"- Workbench cases visible for human review: **{outcomes.get('workbench_cases_visible', metrics.get('workbench_cases', 0))}**\n\n"
             "The operational claim is: Day90 Guardian detects and governs early risk in the current batch; it does **not** claim proven retention lift from this dataset.",
             "summarize_outcome_measurement",
+        )
+
+    if any(word in lower for word in ["insight", "signal", "pattern", "recommendation", "recommended action"]):
+        patterns = context.get("patterns", [])
+        actions = context.get("actions", [])
+        pattern_line = "; ".join(
+            f"{pattern.get('name')} ({_confidence_percent(pattern.get('confidence'))}%)"
+            for pattern in patterns[:3]
+        ) or "No patterns returned."
+        action_line = "; ".join(
+            f"{action.get('priority')}: {action.get('title')}"
+            for action in actions[:3]
+        ) or "No recommended actions returned."
+        return (
+            "The AI Insights view is grounded in the current Day90 profile and Workbench-safe actions.\n\n"
+            f"- Computed insights: {_insight_summary(context)}\n"
+            f"- Detected patterns: {pattern_line}\n"
+            f"- Recommended actions: {action_line}\n"
+            "- These are analysis summaries only; use Workbench for human approval before any external artifact.",
+            "summarize_ai_insights",
+        )
+
+    if any(word in lower for word in ["audit", "activity", "recent", "history", "receipt"]):
+        return (
+            "Recent Day90 activity is available from the audit trail.\n\n"
+            f"- Latest events: {_audit_summary(context)}\n"
+            "- Guardian run receipts and Workbench decisions are recorded as audit events without exposing secrets.",
+            "summarize_recent_activity",
         )
 
     if any(word in lower for word in ["workbench", "case", "approve", "review", "human"]):
@@ -189,7 +324,7 @@ def _contextual_response(message: str, page: str, context: dict) -> tuple[str, s
 def chat(request: ChatRequest):
     page = request.context.get("page", "the current page")
     context = _safe_day90_context()
-    response, tool_name = _contextual_response(request.message, page, context)
+    response, tool_name = _contextual_response(request.message, page, context, request.history)
 
     return {
         "response": response,

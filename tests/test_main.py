@@ -131,7 +131,32 @@ def _fake_day90_ai_context():
                 "threshold": "35 <= risk_score < 85 AND confidential_flag = false",
             }
         ],
-        "audit_head": [],
+        "audit_head": [
+            {
+                "event": "Auto orchestration proof",
+                "actor": "Day90 Guardian Orchestrator",
+                "detail": "Auto Orchestrator accepted verified run RUN-123.",
+            }
+        ],
+        "insights": [
+            {
+                "severity": "critical",
+                "title": "Access and compliance risk cluster",
+                "suggested_action": "Review Red compliance/payroll cases",
+            }
+        ],
+        "patterns": [
+            {
+                "name": "Access bottleneck cluster",
+                "confidence": 0.94,
+            }
+        ],
+        "actions": [
+            {
+                "priority": "critical",
+                "title": "Review Red compliance/payroll cases",
+            }
+        ],
     }
 
 
@@ -181,6 +206,47 @@ async def test_ai_manager_generic_answer_is_grounded_and_cleanly_encoded(monkeyp
     assert "Workbench" in result["response"]
     assert "Iâ" not in result["response"]
     assert result["tool_calls"][0]["name"] == "summarize_day90_context"
+
+
+async def test_ai_manager_uses_history_for_route_followups(monkeypatch):
+    monkeypatch.setattr(ai, "_safe_day90_context", _fake_day90_ai_context)
+
+    result = ai.chat(
+        ai.ChatRequest(
+            message="What about Red?",
+            history=[
+                {"role": "user", "content": "Summarize the Workbench queue and human approval gate"},
+                {"role": "assistant", "content": "The human gate is populated from Workbench cases."},
+            ],
+            context={"page": "/workbench"},
+        )
+    )
+
+    assert "`RED`" in result["response"]
+    assert "EMP7041" in result["response"]
+    assert "read-only" in result["response"]
+    assert result["tool_calls"][0]["name"] == "summarize_route_cases"
+
+
+async def test_ai_manager_summarizes_insights_from_current_context(monkeypatch):
+    monkeypatch.setattr(ai, "_safe_day90_context", _fake_day90_ai_context)
+
+    result = ai.chat(ai.ChatRequest(message="Show me AI insights", context={"page": "/ai/insights"}))
+
+    assert "Access and compliance risk cluster" in result["response"]
+    assert "Access bottleneck cluster" in result["response"]
+    assert "Review Red compliance/payroll cases" in result["response"]
+    assert result["tool_calls"][0]["name"] == "summarize_ai_insights"
+
+
+async def test_ai_manager_summarizes_recent_audit_activity(monkeypatch):
+    monkeypatch.setattr(ai, "_safe_day90_context", _fake_day90_ai_context)
+
+    result = ai.chat(ai.ChatRequest(message="Show recent activity", context={"page": "/"}))
+
+    assert "Auto orchestration proof" in result["response"]
+    assert "Day90 Guardian Orchestrator" in result["response"]
+    assert result["tool_calls"][0]["name"] == "summarize_recent_activity"
 
 
 async def test_route_aware_reviewer_actions(monkeypatch):
