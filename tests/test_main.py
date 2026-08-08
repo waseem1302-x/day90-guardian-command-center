@@ -418,7 +418,7 @@ async def test_manual_trigger_can_call_supervity_with_approval_gated_payload(mon
     """When explicitly enabled, the backend calls Auto without bypassing Workbench approval."""
     monkeypatch.setenv("SUPERVITY_WORKFLOW_EXECUTE_URL", "https://workflow.example/api/v1/workflow-runs/execute/stream")
     monkeypatch.setenv("SUPERVITY_API_KEY", "test-supervity-token")
-    monkeypatch.setenv("SUPERVITY_ACTIVE_ORG", "alpha")
+    monkeypatch.delenv("SUPERVITY_ACTIVE_ORG", raising=False)
     monkeypatch.setenv("DAY90_SUPERVITY_TRIGGER_ENABLED", "true")
     monkeypatch.setattr(
         day90,
@@ -492,7 +492,7 @@ async def test_manual_trigger_can_call_supervity_with_approval_gated_payload(mon
         assert requests[0]["method"] == "POST"
         assert requests[0]["headers"]["Authorization"].startswith("Bearer ")
         assert requests[0]["headers"]["Accept"] == "text/event-stream"
-        assert requests[0]["headers"]["x-active-org"] == "alpha"
+        assert "x-active-org" not in requests[0]["headers"]
         assert requests[0]["headers"]["x-source"] == "external"
         assert requests[0]["files"]["workflowId"] == (
             None,
@@ -504,23 +504,62 @@ async def test_manual_trigger_can_call_supervity_with_approval_gated_payload(mon
             if key.startswith("inputs[")
         }
         assert request_inputs == {
-            "As of DateTime": "2026-08-03T12:00:00+08:00",
-            "Scope Type": "all",
-            "Scope Value": "",
-            "Policy Profile": "hr-default",
-            "Policy Version": "1",
-            "Run Mode": "dry_run",
-            "Batch ID": "R2-BATCH-20260803",
-            "Source Batch ID": "R2-BATCH-20260803",
-            "Slack Channel Name": "day90-test",
-            "Asana Project Name": "D90TEST — Day90 Guardian",
-            "Asana Workspace Name": "My Workspace",
+            "as_of_datetime": "2026-08-03T12:00:00+08:00",
+            "scope_type": "all",
+            "scope_value": "",
+            "policy_profile": "hr-default",
+            "policy_version": "1",
+            "run_mode": "dry_run",
+            "batch_id": "R2-BATCH-20260803",
+            "source_batch_id": "R2-BATCH-20260803",
+            "slack_channel_name": "day90-test",
+            "asana_project_name": "D90TEST — Day90 Guardian",
+            "asana_workspace_name": "My Workspace",
         }
         assert "inputs" not in requests[0]["files"]
         assert "cases" not in request_inputs
         assert "route_counts" not in request_inputs
     finally:
         day90.AUDIT_TRAIL[:] = audit_before
+
+
+async def test_supervity_connector_sends_active_org_only_when_configured(monkeypatch):
+    monkeypatch.setenv("SUPERVITY_WORKFLOW_EXECUTE_URL", "https://workflow.example/api/v1/workflow-runs/execute/stream")
+    monkeypatch.setenv("SUPERVITY_API_KEY", "test-supervity-token")
+    monkeypatch.setenv("SUPERVITY_ACTIVE_ORG", "alpha")
+    monkeypatch.setenv("DAY90_SUPERVITY_TRIGGER_ENABLED", "true")
+
+    requests = []
+
+    class AcceptedResponse:
+        status_code = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def iter_lines(self):
+            return iter(
+                [
+                    "event: workflow-run",
+                    'data: {"content":{"workflowRunId":"RUN-ORG","status":"running"}}',
+                    "",
+                ]
+            )
+
+    def fake_stream(method, url, **kwargs):
+        requests.append({"method": method, "url": url, **kwargs})
+        return AcceptedResponse()
+
+    monkeypatch.setattr(day90_integrations.httpx, "stream", fake_stream)
+
+    result = day90_integrations.execute_supervity_orchestrator({}, [], "R2-TEST")
+
+    assert result["ok"] is True
+    assert result["run_id"] == "RUN-ORG"
+    assert requests[0]["headers"]["x-active-org"] == "alpha"
 
 
 async def test_supervity_connector_fails_closed_when_request_is_rejected(monkeypatch):

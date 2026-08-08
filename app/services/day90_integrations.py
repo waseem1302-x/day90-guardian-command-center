@@ -12,7 +12,7 @@ import httpx
 
 
 DEFAULT_SUPERVITY_WORKFLOW_ID = "019f7b16-6fc0-7000-923b-f6ebf9317c02"
-DEFAULT_SUPERVITY_ACTIVE_ORG = "alpha"
+DEFAULT_SUPERVITY_ACTIVE_ORG = ""
 DEFAULT_SUPERVITY_RUN_MODE = "dry_run"
 DEFAULT_SUPERVITY_SCOPE_TYPE = "all"
 DEFAULT_SUPERVITY_BATCH_ID = "R2-BATCH-20260803"
@@ -81,7 +81,7 @@ def integration_registry(source: dict) -> list[dict]:
     supervity_ready = (
         _configured("SUPERVITY_WORKFLOW_EXECUTE_URL", "SUPERVITY_API_KEY")
         and _is_supervity_stream_url(supervity_url)
-        and bool(supervity_workflow_id and supervity_active_org)
+        and bool(supervity_workflow_id)
     )
     slack_ready = _configured("SLACK_BOT_TOKEN", "SLACK_CHANNEL_ID")
     asana_ready = _configured("ASANA_ACCESS_TOKEN", "ASANA_PROJECT_GID")
@@ -121,16 +121,16 @@ def integration_registry(source: dict) -> list[dict]:
             "counts_as_live": True,
             "status": "ready" if supervity_ready else "needs_api_key",
             "detail": (
-                "Streaming workflow endpoint, workflow ID, organization, and API key configured."
+                "Streaming workflow endpoint, workflow ID, and API key configured."
                 if supervity_ready
-                else "Configure the Supervity streaming endpoint, workflow ID, organization, and API key to trigger Auto from this app."
+                else "Configure the Supervity streaming endpoint, workflow ID, and API key to trigger Auto from this app."
             ),
             "configured": supervity_ready,
             "safe_config": {
                 "SUPERVITY_WORKFLOW_EXECUTE_URL": "configured" if os.getenv("SUPERVITY_WORKFLOW_EXECUTE_URL") else "missing",
                 "SUPERVITY_API_KEY": _secret_status("SUPERVITY_API_KEY"),
                 "SUPERVITY_WORKFLOW_ID": "configured" if supervity_workflow_id else "missing",
-                "SUPERVITY_ACTIVE_ORG": "configured" if supervity_active_org else "missing",
+                "SUPERVITY_ACTIVE_ORG": "configured" if supervity_active_org else "not required for personal scope",
             },
         },
         {
@@ -244,7 +244,7 @@ def _supervity_event_receipt(event_name: str, payload: dict) -> tuple[str | None
 
 
 def _supervity_contract_inputs(profile: dict) -> dict:
-    """Build the exact Auto workflow input labels observed from the v12 run."""
+    """Build the exact Auto workflow input names observed from the v12 workflow metadata."""
     source = profile.get("source") if isinstance(profile.get("source"), dict) else {}
     as_of_date = os.getenv("SUPERVITY_AS_OF_DATETIME", "").strip()
     if not as_of_date:
@@ -253,17 +253,17 @@ def _supervity_contract_inputs(profile: dict) -> dict:
     batch_id = os.getenv("SUPERVITY_BATCH_ID", DEFAULT_SUPERVITY_BATCH_ID).strip()
 
     return {
-        "As of DateTime": as_of_date,
-        "Scope Type": os.getenv("SUPERVITY_SCOPE_TYPE", DEFAULT_SUPERVITY_SCOPE_TYPE).strip(),
-        "Scope Value": os.getenv("SUPERVITY_SCOPE_VALUE", "").strip(),
-        "Policy Profile": os.getenv("SUPERVITY_POLICY_PROFILE", DEFAULT_SUPERVITY_POLICY_PROFILE).strip(),
-        "Policy Version": int(os.getenv("SUPERVITY_POLICY_VERSION", str(DEFAULT_SUPERVITY_POLICY_VERSION)).strip()),
-        "Run Mode": os.getenv("SUPERVITY_RUN_MODE", DEFAULT_SUPERVITY_RUN_MODE).strip(),
-        "Batch ID": batch_id,
-        "Source Batch ID": os.getenv("SUPERVITY_SOURCE_BATCH_ID", batch_id).strip(),
-        "Slack Channel Name": os.getenv("SUPERVITY_SLACK_CHANNEL_NAME", DEFAULT_SUPERVITY_SLACK_CHANNEL_NAME).strip(),
-        "Asana Project Name": os.getenv("SUPERVITY_ASANA_PROJECT_NAME", DEFAULT_SUPERVITY_ASANA_PROJECT_NAME).strip(),
-        "Asana Workspace Name": os.getenv("SUPERVITY_ASANA_WORKSPACE_NAME", DEFAULT_SUPERVITY_ASANA_WORKSPACE_NAME).strip(),
+        "as_of_datetime": as_of_date,
+        "scope_type": os.getenv("SUPERVITY_SCOPE_TYPE", DEFAULT_SUPERVITY_SCOPE_TYPE).strip(),
+        "scope_value": os.getenv("SUPERVITY_SCOPE_VALUE", "").strip(),
+        "policy_profile": os.getenv("SUPERVITY_POLICY_PROFILE", DEFAULT_SUPERVITY_POLICY_PROFILE).strip(),
+        "policy_version": int(os.getenv("SUPERVITY_POLICY_VERSION", str(DEFAULT_SUPERVITY_POLICY_VERSION)).strip()),
+        "run_mode": os.getenv("SUPERVITY_RUN_MODE", DEFAULT_SUPERVITY_RUN_MODE).strip(),
+        "batch_id": batch_id,
+        "source_batch_id": os.getenv("SUPERVITY_SOURCE_BATCH_ID", batch_id).strip(),
+        "slack_channel_name": os.getenv("SUPERVITY_SLACK_CHANNEL_NAME", DEFAULT_SUPERVITY_SLACK_CHANNEL_NAME).strip(),
+        "asana_project_name": os.getenv("SUPERVITY_ASANA_PROJECT_NAME", DEFAULT_SUPERVITY_ASANA_PROJECT_NAME).strip(),
+        "asana_workspace_name": os.getenv("SUPERVITY_ASANA_WORKSPACE_NAME", DEFAULT_SUPERVITY_ASANA_WORKSPACE_NAME).strip(),
     }
 
 
@@ -279,13 +279,13 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
     api_key = os.getenv("SUPERVITY_API_KEY", "").strip()
     workflow_id = os.getenv("SUPERVITY_WORKFLOW_ID", DEFAULT_SUPERVITY_WORKFLOW_ID).strip()
     active_org = os.getenv("SUPERVITY_ACTIVE_ORG", DEFAULT_SUPERVITY_ACTIVE_ORG).strip()
-    if not workflow_url or not api_key or not workflow_id or not active_org:
+    if not workflow_url or not api_key or not workflow_id:
         return {
             "system": "supervity_auto",
             "ok": False,
             "executed": False,
             "status": "not_configured",
-            "detail": "Supervity endpoint, workflow ID, organization, or API key is missing.",
+            "detail": "Supervity endpoint, workflow ID, or API key is missing.",
         }
 
     if not _is_supervity_stream_url(workflow_url):
@@ -317,9 +317,11 @@ def execute_supervity_orchestrator(profile: dict, cases: list[dict], run_tag: st
         headers = {
             "Accept": "text/event-stream",
             "Authorization": f"Bearer {api_key}",
-            "x-active-org": active_org,
             "x-source": "external",
         }
+        if active_org:
+            headers["x-active-org"] = active_org
+
         files = {"workflowId": (None, workflow_id)}
         for key, value in workflow_inputs.items():
             files[f"inputs[{key}]"] = (None, str(value))
