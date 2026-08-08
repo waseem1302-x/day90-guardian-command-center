@@ -559,8 +559,22 @@ def _workbench_cases_from_profile(profile: dict) -> list[dict]:
         route = case["route"]
         signals = case["signals"]
         is_confidential = route == "CONFIDENTIAL"
+        is_data_quality = route == "DATA_QUALITY"
         risk_band = route.title().replace("_", " ")
         reason = _signals_text(signals)
+        recommended_action = "Review evidence in Workbench, then approve a masked Slack/Asana action only if safe."
+        assignee = "HR operations lead"
+        status = "pending_review"
+        security = "Synthetic hackathon data only. No confidential text exposed."
+        if is_confidential:
+            recommended_action = "Route only to restricted People Ops reviewer; do not expose raw pulse text."
+            assignee = "Restricted People Ops reviewer"
+            status = "restricted_review"
+            security = "Raw confidential text intentionally not loaded into this UI."
+        elif is_data_quality:
+            recommended_action = "Send to People data steward for HRIS/source-data correction before any Slack or Asana action."
+            assignee = "People data steward"
+            security = "Source-data issue quarantined; no public Slack or Asana artifact is created."
         generated.append(
             {
                 "id": f"case-{employee_id.lower()}-{route.lower()}",
@@ -570,18 +584,10 @@ def _workbench_cases_from_profile(profile: dict) -> list[dict]:
                 "risk_band": risk_band,
                 "summary": f"{risk_band} Day90 review for {employee_id}.",
                 "reason": reason,
-                "recommended_action": (
-                    "Route only to restricted People Ops reviewer; do not expose raw pulse text."
-                    if is_confidential
-                    else "Review evidence in Workbench, then approve a masked Slack/Asana action only if safe."
-                ),
-                "assignee": "Restricted People Ops reviewer" if is_confidential else "HR operations lead",
-                "status": "restricted_review" if is_confidential else "pending_review",
-                "security": (
-                    "Raw confidential text intentionally not loaded into this UI."
-                    if is_confidential
-                    else "Synthetic hackathon data only. No confidential text exposed."
-                ),
+                "recommended_action": recommended_action,
+                "assignee": assignee,
+                "status": status,
+                "security": security,
                 "evidence": [
                     f"Risk score {case['score']}",
                     reason,

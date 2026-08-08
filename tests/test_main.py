@@ -229,6 +229,28 @@ async def test_route_aware_reviewer_actions(monkeypatch):
     assert red_task["due_on"]
 
 
+async def test_data_quality_case_copy_does_not_suggest_public_actions(monkeypatch):
+    profile = {
+        "candidate_cases": [
+            {
+                "employee_id": "EMP9003",
+                "route": "DATA_QUALITY",
+                "score": 40,
+                "signals": {"missing_manager": 1},
+            }
+        ],
+    }
+
+    cases = day90._workbench_cases_from_profile(profile)
+    data_quality_case = cases[0]
+
+    assert data_quality_case["route"] == "DATA_QUALITY"
+    assert data_quality_case["assignee"] == "People data steward"
+    assert "source-data correction" in data_quality_case["recommended_action"]
+    assert "approve a masked Slack/Asana action" not in data_quality_case["recommended_action"]
+    assert "no public Slack or Asana artifact" in data_quality_case["security"]
+
+
 async def test_approved_decision_is_idempotent(monkeypatch):
     case = {
         "id": "case-test-amber",
