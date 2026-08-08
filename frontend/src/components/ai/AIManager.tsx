@@ -91,6 +91,9 @@ export function AIManager() {
   const modalRef = useRef<HTMLDivElement>(null)
   const guardianRunInFlightRef = useRef(false)
   const [isGuardianConfirmationOpen, setIsGuardianConfirmationOpen] = useState(false)
+  const lastCompletedAssistantMessageId = [...chatHistory]
+    .reverse()
+    .find((message) => message.role === 'assistant' && !message.isLoading)?.id
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -430,19 +433,22 @@ export function AIManager() {
                   /* Chat Messages */
                   <div className="space-y-4">
                     {chatHistory.map((message) => (
-                      <ChatMessage
-                        key={message.id}
-                        message={message}
-                        userName={session?.user?.name || undefined}
-                        userImage={session?.user?.image}
-                      />
+                      <div key={message.id} className="space-y-3">
+                        <ChatMessage
+                          message={message}
+                          userName={session?.user?.name || undefined}
+                          userImage={session?.user?.image}
+                        />
+                        {message.id === lastCompletedAssistantMessageId && (
+                          <div className="rounded-2xl border border-brand-cornflower/15 bg-brand-cornflower/5 px-3 py-3">
+                            <p className="px-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-brand-cornflower">
+                              Supported commands
+                            </p>
+                            <CapabilityBubbles onSelect={handleQuickAction} />
+                          </div>
+                        )}
+                      </div>
                     ))}
-                    <div className="rounded-2xl border border-brand-cornflower/15 bg-brand-cornflower/5 px-3 py-3">
-                      <p className="px-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-brand-cornflower">
-                        Supported commands
-                      </p>
-                      <CapabilityBubbles onSelect={handleQuickAction} />
-                    </div>
                     <div ref={messagesEndRef} />
                   </div>
                 )}
