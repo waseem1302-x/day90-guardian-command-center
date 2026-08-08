@@ -139,6 +139,26 @@ def _confidence_percent(value: object) -> int:
         return 0
 
 
+def _capability_menu(page: str, context: dict) -> str:
+    return (
+        "I am a guided Day90 command-center assistant, not a general free-text LLM. "
+        "Use one of these supported commands and I will answer from the current Day90 data.\n\n"
+        "- `Run Guardian Review`: start the approval-gated Supervity Guardian run.\n"
+        "- `Show readiness proof`: explain the live operating proof path.\n"
+        "- `Summarize Workbench`: show queue counts, route mix, and sample cases.\n"
+        "- `Show Red cases`, `Show Amber cases`, `Show Confidential cases`, or `Show Data Quality cases`: filter Workbench by route.\n"
+        "- `Explain policy gates`: summarize active policy thresholds and routing impact.\n"
+        "- `Check integrations`: summarize Supabase, Supervity, Slack, Asana, and fallback readiness.\n"
+        "- `Summarize outcomes`: explain measured operational outcomes without claiming attrition lift.\n"
+        "- `Show AI insights`: summarize computed insights, patterns, and recommended actions.\n"
+        "- `Check privacy controls`: explain confidential routing, masking, and public-action blocking.\n"
+        "- `Show recent activity`: summarize audit events and receipts.\n"
+        "- `Explain this page`: summarize what I can read for the current page.\n\n"
+        f"Current page: `{page}`. Current snapshot: **{context.get('integrations_ready')}/{context.get('integrations_total')}** primary integrations ready, "
+        f"**{context.get('metrics', {}).get('workbench_cases', 0)}** Workbench cases, route mix **{_format_route_counts(context)}**."
+    )
+
+
 def _recent_history_text(history: list[dict], limit: int = 4) -> str:
     messages = []
     for item in history[-limit:]:
@@ -148,13 +168,15 @@ def _recent_history_text(history: list[dict], limit: int = 4) -> str:
     return " ".join(messages)
 
 
-def _expanded_message(message: str, history: list[dict]) -> str:
+def _is_followup(message: str) -> bool:
     lower = message.lower().strip()
     followup_starters = ("what about", "show me those", "show those", "them", "those", "these", "and", "also")
-    is_followup = len(lower.split()) <= 5 or lower.startswith(followup_starters)
-    if not is_followup:
-        return message
-    return f"{_recent_history_text(history)} {message}".strip()
+    return lower.startswith(followup_starters)
+
+
+def _history_mentions_route_context(history: list[dict]) -> bool:
+    lower = _recent_history_text(history).lower()
+    return any(word in lower for word in ["workbench", "case", "route", "queue", "human approval"])
 
 
 def _requested_route(message: str) -> str | None:
@@ -202,11 +224,20 @@ def _contextual_response(message: str, page: str, context: dict, history: list[d
     route_line = _format_route_counts(context)
     sample_cases = _sample_cases(context)
     outcomes = context.get("outcomes", {})
-    expanded = _expanded_message(message, history or [])
-    lower = expanded.lower()
-    requested_route = _requested_route(expanded)
+    lower = message.lower().strip()
+    recent_history = history or []
+    requested_route = _requested_route(message)
+    route_query_words = ["case", "workbench", "route", "queue", "what about", "show", "those", "these"]
+    wants_capability_menu = (
+        lower in {"help", "commands", "capabilities", "options", "menu"}
+        or "what can you help" in lower
+        or "explain this page" in lower
+    )
 
-    if requested_route and any(word in lower for word in ["case", "workbench", "route", "queue", "what about", "show", "those", "these"]):
+    if requested_route and (
+        any(word in lower for word in route_query_words)
+        or (_is_followup(message) and _history_mentions_route_context(recent_history))
+    ):
         cases = _cases_for_route(context, requested_route)
         counts = _route_counts(context)
         return (
@@ -216,6 +247,9 @@ def _contextual_response(message: str, page: str, context: dict, history: list[d
             "- This is read-only context; AI Manager is not approving or creating external actions from this answer.",
             "summarize_route_cases",
         )
+
+    if wants_capability_menu:
+        return (_capability_menu(page, context), "show_supported_commands")
 
     if any(word in lower for word in ["confidential", "privacy", "leak", "mask"]):
         return (
@@ -227,7 +261,7 @@ def _contextual_response(message: str, page: str, context: dict, history: list[d
             "explain_confidential_gate",
         )
 
-    if any(word in lower for word in ["policy", "threshold", "route", "routing", "gate"]):
+    if any(word in lower for word in ["policy", "policies", "threshold", "route", "routing", "gate"]):
         return (
             "The policy controls are connected to the next Day90 route evaluation.\n\n"
             f"- Current routing preview: **{route_line}**\n"
@@ -309,15 +343,7 @@ def _contextual_response(message: str, page: str, context: dict, history: list[d
             "prepare_demo_path",
         )
 
-    return (
-        f"On `{page}`, I'm reading the live Day90 signals from the Command Center, Workbench, policies, integrations, and audit trail.\n\n"
-        f"- Source: **{source.get('kind')}**\n"
-        f"- Primary integrations: **{context.get('integrations_ready')}/{context.get('integrations_total')} ready**\n"
-        f"- Route counts: **{route_line}**\n"
-        f"- Workbench queue: **{metrics.get('workbench_cases', 0)} cases**\n\n"
-        "Ask me about policies, confidential routing, Workbench approvals, integrations, or the live operating path and I'll answer from these current signals.",
-        "summarize_day90_context",
-    )
+    return (_capability_menu(page, context), "show_supported_commands")
 
 
 @router.post("/chat")

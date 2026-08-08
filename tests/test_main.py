@@ -196,16 +196,48 @@ async def test_ai_manager_reports_measured_outcomes_without_attrition_lift(monke
     assert result["tool_calls"][0]["result"]["outcomes"]["retention_lift_claimed"] is False
 
 
-async def test_ai_manager_generic_answer_is_grounded_and_cleanly_encoded(monkeypatch):
+async def test_ai_manager_help_shows_supported_command_menu(monkeypatch):
     monkeypatch.setattr(ai, "_safe_day90_context", _fake_day90_ai_context)
 
     result = ai.chat(ai.ChatRequest(message="What can you help me with?", context={"page": "/workbench"}))
 
-    assert "live Day90 signals" in result["response"]
-    assert "Command Center" in result["response"]
+    assert "guided Day90 command-center assistant" in result["response"]
+    assert "Run Guardian Review" in result["response"]
     assert "Workbench" in result["response"]
+    assert "Explain policy gates" in result["response"]
     assert "Iâ" not in result["response"]
-    assert result["tool_calls"][0]["name"] == "summarize_day90_context"
+    assert result["tool_calls"][0]["name"] == "show_supported_commands"
+
+
+async def test_ai_manager_unsupported_text_returns_capability_menu(monkeypatch):
+    monkeypatch.setattr(ai, "_safe_day90_context", _fake_day90_ai_context)
+
+    result = ai.chat(ai.ChatRequest(message="Can you draft a compensation memo?", context={"page": "/"}))
+
+    assert "Use one of these supported commands" in result["response"]
+    assert "Check integrations" in result["response"]
+    assert "draft a compensation memo" not in result["response"].lower()
+    assert result["tool_calls"][0]["name"] == "show_supported_commands"
+
+
+async def test_ai_manager_direct_policy_command_wins_over_history(monkeypatch):
+    monkeypatch.setattr(ai, "_safe_day90_context", _fake_day90_ai_context)
+
+    result = ai.chat(
+        ai.ChatRequest(
+            message="policies",
+            history=[
+                {"role": "user", "content": "What can you help me with?"},
+                {"role": "assistant", "content": "Ask me about confidential routing and Workbench approvals."},
+            ],
+            context={"page": "/"},
+        )
+    )
+
+    assert "policy controls are connected" in result["response"]
+    assert "Amber Manager Nudge" in result["response"]
+    assert "current `CONFIDENTIAL` route view" not in result["response"]
+    assert result["tool_calls"][0]["name"] == "explain_policy_impact"
 
 
 async def test_ai_manager_uses_history_for_route_followups(monkeypatch):
